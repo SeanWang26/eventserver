@@ -1,0 +1,33 @@
+﻿生成启动时间为 2015/9/1 23:52:21。
+     1>项目“F:\nmchelper1\windows\nmchelper\nmchelper.vcxproj”在节点 2 上(build 个目标)。
+     1>InitializeBuildStatus:
+         正在创建“Release\nmchelper.unsuccessfulbuild”，因为已指定“AlwaysCreate”。
+       ClCompile:
+         所有输出均为最新。
+         D:\Program Files (x86)\Microsoft Visual Studio 10.0\VC\bin\CL.exe /c /I..\innerinclude /I..\..\include /Zi /nologo /W3 /WX- /Od /Oi /Oy- /GL /D _CRT_SECURE_NO_WARNINGS /D NMC_USER_MODULE_EXPORTS /D WIN32 /D _WINDOWS /D NDEBUG /D _USRDLL /D _WINDLL /D _MBCS /Gm- /EHsc /MT /GS /Gy /fp:precise /Zc:wchar_t /Zc:forScope /Yu"StdAfx.h" /Fp"Release\nmchelper.pch" /Fo"Release\\" /Fd"Release\vc100.pdb" /Gd /TP /analyze- /errorReport:prompt ..\..\src\JtEventConnPeer.cpp ..\..\src\JtEventListen.cpp ..\..\src\JtEventServer.cpp
+         JtEventConnPeer.cpp
+         using windows i586 include file ..\..\src\JtEventConnPeer.cpp
+         using windows i586 include file f:\nmchelper1\src\JtEventConnPeer.h
+         using windows i586 include file f:\nmchelper1\src\JtEventServer.h
+         using windows i586 include file f:\nmchelper1\src\JtEventType.h
+         using windows i586 include file f:\nmchelper1\src\JtEventPairPipe.h
+         JtEventListen.cpp
+         using windows i586 include file ..\..\src\JtEventListen.cpp
+         using windows i586 include file f:\nmchelper1\src\JtEventServer.h
+         using windows i586 include file f:\nmchelper1\src\JtEventType.h
+         using windows i586 include file f:\nmchelper1\src\JtEventPairPipe.h
+         using windows i586 include file f:\nmchelper1\src\JtEventConnPeer.h
+     1>f:\nmchelper1\src\JtEventConnPeer.h(64): error C2061: 语法错误: 标识符“evutil_socket_t”
+         using windows i586 include file f:\nmchelper1\src\JtEventListen.h
+     1>..\..\src\JtEventListen.cpp(63): error C2661: “JtEventConnPeer::JtEventConnPeer”: 没有重载函数接受 3 个参数
+         JtEventServer.cpp
+         using windows i586 include file f:\nmchelper1\src\JtEventPairPipe.h
+         using windows i586 include file f:\nmchelper1\src\JtEventType.h
+         using windows i586 include file
+         using windows i586 include file f:\nmchelper1\src\JtEventServer.h
+         using windows i586 include file
+     1>已完成生成项目“F:\nmchelper1\windows\nmchelper\nmchelper.vcxproj”(build 个目标)的操作 - 失败。
+
+生成失败。
+
+已用时间 00:00:01.55

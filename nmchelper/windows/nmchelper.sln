@@ -1,0 +1,35 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "nmc_mfc_test", "nmc_mfc_test\nmc_mfc_test.vcxproj", "{5F4A387C-29E6-427B-A298-12BDD43D8A27}"
+	ProjectSection(ProjectDependencies) = postProject
+		{97593F4F-7DAE-4E40-A97C-A6D2A371D57A} = {97593F4F-7DAE-4E40-A97C-A6D2A371D57A}
+	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "nmchelper", "nmchelper\nmchelper.vcxproj", "{97593F4F-7DAE-4E40-A97C-A6D2A371D57A}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "jteventtest", "jteventtest\jteventtest.vcxproj", "{D2093D74-5339-447E-98AC-3CF1B98A5D53}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{5F4A387C-29E6-427B-A298-12BDD43D8A27}.Debug|Win32.ActiveCfg = Debug|Win32
+		{5F4A387C-29E6-427B-A298-12BDD43D8A27}.Debug|Win32.Build.0 = Debug|Win32
+		{5F4A387C-29E6-427B-A298-12BDD43D8A27}.Release|Win32.ActiveCfg = Release|Win32
+		{5F4A387C-29E6-427B-A298-12BDD43D8A27}.Release|Win32.Build.0 = Release|Win32
+		{97593F4F-7DAE-4E40-A97C-A6D2A371D57A}.Debug|Win32.ActiveCfg = Debug|Win32
+		{97593F4F-7DAE-4E40-A97C-A6D2A371D57A}.Debug|Win32.Build.0 = Debug|Win32
+		{97593F4F-7DAE-4E40-A97C-A6D2A371D57A}.Release|Win32.ActiveCfg = Release|Win32
+		{97593F4F-7DAE-4E40-A97C-A6D2A371D57A}.Release|Win32.Build.0 = Release|Win32
+		{D2093D74-5339-447E-98AC-3CF1B98A5D53}.Debug|Win32.ActiveCfg = Debug|Win32
+		{D2093D74-5339-447E-98AC-3CF1B98A5D53}.Debug|Win32.Build.0 = Debug|Win32
+		{D2093D74-5339-447E-98AC-3CF1B98A5D53}.Release|Win32.ActiveCfg = Release|Win32
+		{D2093D74-5339-447E-98AC-3CF1B98A5D53}.Release|Win32.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

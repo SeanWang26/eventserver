@@ -222,7 +222,7 @@ int JtEventServer::Start()
 
 	return 0;
 }
-static int JtEventServer_static_nCmdSeq = 0;
+//static int JtEventServer_static_nCmdSeq = 0;
 int JtEventServer::GenSeq()
 {
 	static int sJtEventServerSeq = 0;
@@ -234,7 +234,7 @@ int JtEventServer::Stop()
 	ExCommand Head;
 	Head.nSrcType				= 0;
 	Head.nCmdType				= JTEVENT_NOTIFY_STOP_LOOP;
-	Head.nCmdSeq				= ++JtEventServer_static_nCmdSeq;
+	Head.nCmdSeq				= GenSeq();
 	Head.nContentSize			= 0;
 
 	pEventPairPipe->SendCmd((const char*)&Head, sizeof(Head));
@@ -256,7 +256,7 @@ int JtEventServer::TestCmd()
 	ExCommand Head;
 	Head.nSrcType				= 0;
 	Head.nCmdType				= JTEVENT_TEST_CMD;
-	Head.nCmdSeq				= ++JtEventServer_static_nCmdSeq;
+	Head.nCmdSeq				= GenSeq();
 	Head.nContentSize			= 0;
 
 	return pEventPairPipe->SendCmd((const char*)&Head, sizeof(Head));
@@ -266,7 +266,7 @@ int JtEventServer::NotifyAddPeer()
 	ExCommand Head;
 	Head.nSrcType				= 0;
 	Head.nCmdType				= JTEVENT_NOTIFY_ADD_PEER;
-	Head.nCmdSeq				= ++JtEventServer_static_nCmdSeq;
+	Head.nCmdSeq				= GenSeq();
 	Head.nContentSize			= 0;
 
 	//char ddd[1024];

@@ -36,7 +36,7 @@
 	#endif
 #endif
 
-
+#include "NmcCmdDefine.h"
 #include "JtEventConnect.h"
 //#include "ExternalDefine.h"
 
@@ -52,6 +52,31 @@ JtEventConnect::~JtEventConnect()
 
 int JtEventConnect::OnAddToServer(JtEventServer *m_Server)
 {
+	SetServer(m_Server);
+
+    bev = bufferevent_socket_new(m_Server->GetBase(), -1, BEV_OPT_CLOSE_ON_FREE|BEV_OPT_THREADSAFE);//BEV_OPT_THREADSAFE
+	if(!bev)//
+	{
+		//jtprintf("[%s]DoConnect bev %p\n", __FUNCTION__, bev);
+		evutil_closesocket(m_sock);
+
+		return -3;
+	}
+
+	//bufferevent_set_max_single_read(bev, 512);
+
+	int res = bufferevent_setfd(bev, m_sock);
+	//jtprintf("[%s]bufferevent_setfd res %d\n", __FUNCTION__, res);
+
+    bufferevent_setcb(bev, Static_ReadCallback, NULL, Static_EventCallback, this);
+	bufferevent_enable(bev, EV_READ|EV_WRITE);
+
+	if(m_Sink)
+	{
+		m_Sink->OnConnected(this);
+	}
+
+
 	return 0;
 }
 int JtEventConnect::OnRemoveFromServer()
@@ -147,13 +172,13 @@ int JtEventConnect::DoConnect(string Ip, uint16_t Port, int TimeOut)
     sin.sin_addr.s_addr = inet_addr(Ip.c_str());  
 #endif
 
-	evutil_socket_t sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	evutil_make_socket_nonblocking(sock);
-	evutil_make_socket_closeonexec(sock);
+	m_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	evutil_make_socket_nonblocking(m_sock);
+	evutil_make_socket_closeonexec(m_sock);
 
 #if (defined(WIN32) || defined(WIN64))
 
-	connect(sock, (struct sockaddr*)&sin, sizeof(sin));
+	connect(m_sock, (struct sockaddr*)&sin, sizeof(sin));
 
 #else 
 	if(connect(sock, (struct sockaddr*)&sin, sizeof(sin)))
@@ -174,8 +199,8 @@ int JtEventConnect::DoConnect(string Ip, uint16_t Port, int TimeOut)
 	struct timeval Timeout = {3,0};
 	fd_set writefds;
 	FD_ZERO(&writefds);
-	FD_SET(sock,&writefds);
-	unsigned numFds = sock;
+	FD_SET(m_sock,&writefds);
+	unsigned numFds = m_sock;
 
 	int res=0;
 	while(((res=select(numFds+1, NULL, &writefds,  NULL, &Timeout))==-1)&&errno==EINTR);
@@ -183,11 +208,11 @@ int JtEventConnect::DoConnect(string Ip, uint16_t Port, int TimeOut)
 	{
 		//printf("connect(%d) error: %s\n", sock, strerror(errno));
 #if (defined(WIN32) || defined(WIN64))
-		closesocket(sock);
+		closesocket(m_sock);
 #else  
-		close(sock);
+		close(m_sock);
 #endif		
-		sock=-1;
+		m_sock=-1;
 		return -1;
 	}
 
@@ -197,7 +222,7 @@ int JtEventConnect::DoConnect(string Ip, uint16_t Port, int TimeOut)
 	//	goto connected;
 	//}
 	//else 
-	if (FD_ISSET(sock, &writefds))
+	if (FD_ISSET(m_sock, &writefds))
 	{
 		//jtprintf("[%s]writefds select ok\n", __FUNCTION__);
 
@@ -205,7 +230,7 @@ int JtEventConnect::DoConnect(string Ip, uint16_t Port, int TimeOut)
 #if (defined(WIN32) || defined(WIN64))
 		int error = 0;
 		int len = sizeof (error);
-		if(getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&error, &len) < 0)
+		if(getsockopt(m_sock, SOL_SOCKET, SO_ERROR, (char*)&error, &len) < 0)
 #else  
 		int error = 0;
 		socklen_t len = sizeof (error);
@@ -213,15 +238,15 @@ int JtEventConnect::DoConnect(string Ip, uint16_t Port, int TimeOut)
 #endif
 		{
 			//printf ("getsockopt fail,connected fail\n");
-			evutil_closesocket(sock);
-			sock=-1;
+			evutil_closesocket(m_sock);
+			m_sock=-1;
 			return -1;
 		}
 
 		if (error == ETIMEDOUT)
 		{
-			evutil_closesocket(sock);
-			sock=-1;
+			evutil_closesocket(m_sock);
+			m_sock=-1;
 			//jtprintf ("[%s]connected timeout\n", __FUNCTION__);
 			return -1;
 		}
@@ -229,16 +254,16 @@ int JtEventConnect::DoConnect(string Ip, uint16_t Port, int TimeOut)
 		if(error == ECONNREFUSED)
 		{
 			//jtprintf("[%s]No one listening on the remote address.\n", __FUNCTION__);
-			evutil_closesocket(sock);
-			sock=-1;
+			evutil_closesocket(m_sock);
+			m_sock=-1;
 			return -1;
 		}
 
 		if(error)
 		{
 			//jtprintf("[%s]\n", __FUNCTION__);
-			evutil_closesocket(sock);
-			sock=-1;
+			evutil_closesocket(m_sock);
+			m_sock=-1;
 			return -1;
 		}		
 
@@ -247,8 +272,8 @@ int JtEventConnect::DoConnect(string Ip, uint16_t Port, int TimeOut)
 	else 
 	{
 		//jtprintf("[%s]DoConnect select failed, %s\n", __FUNCTION__, strerror(errno));
-		evutil_closesocket(sock);
-		sock=-1;
+		evutil_closesocket(m_sock);
+		m_sock=-1;
 		return -3;
 	}
 
@@ -260,7 +285,7 @@ connected:
 
 	//jtprintf("[%s]GetServer()->GetBase() %p\n", __FUNCTION__, GetServer()->GetBase());
 	//sleep(10);
-	
+	/*
     bev = bufferevent_socket_new(GetServer()->GetBase(), -1, BEV_OPT_CLOSE_ON_FREE|BEV_OPT_THREADSAFE);//BEV_OPT_THREADSAFE
 	if(!bev)//
 	{
@@ -282,7 +307,7 @@ connected:
 	{
 		m_Sink->OnConnected(this);
 	}
-
+	*/
 	return 0;
 }
 int JtEventConnect::DoDisconnect()
@@ -326,4 +351,13 @@ int JtEventConnect::SetJtEventCallbackSink(JtConnectEventCallbackSink *Sink, voi
 		
 	return 0;
 }
+int JtEventConnect::TestCmd()
+{
+	ExCommand Head;
+	Head.nSrcType				= 0;
+	Head.nCmdType				= JTEVENT_TEST_CMD;
+	Head.nCmdSeq				= GetServer()->GenSeq();
+	Head.nContentSize			= 0;
 
+	return SendData((const char*)&Head,sizeof(Head));
+}

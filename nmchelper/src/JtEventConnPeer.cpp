@@ -36,7 +36,7 @@
 	#endif
 #endif
 
-
+#include "NmcCmdDefine.h"
 #include "JtEventConnPeer.h"
 
 JtEventConnPeer::JtEventConnPeer(evutil_socket_t fd, struct sockaddr *address, int socklen) : JtEventPeer(), bev(NULL), 
@@ -55,6 +55,8 @@ JtEventConnPeer::~JtEventConnPeer()
 
 int JtEventConnPeer::OnAddToServer(JtEventServer *Server)
 {
+	SetServer(Server);
+
 	m_FramePkg.SetCallBack(this);
 	
     bev = bufferevent_socket_new(Server->GetBase(), -1, BEV_OPT_CLOSE_ON_FREE|BEV_OPT_THREADSAFE);//BEV_OPT_THREADSAFE
@@ -104,7 +106,7 @@ void JtEventConnPeer::EventCallback(struct bufferevent *bev, short events)
 		 DoDisconnect();
 
 		 if(m_Sink)
-			 m_Sink->OnClosed(this);
+			 m_Sink->OnJtEventConnPeerClosed(this);
     }
 	else
 	{
@@ -139,7 +141,7 @@ void JtEventConnPeer::ReadCallback(struct bufferevent *bev)
 int JtEventConnPeer::OnGetFrame(unsigned char* Data, int len)
 {
 	if(m_Sink)
-		m_Sink->OnRecvData(this, Data, len);
+		m_Sink->OnJtEventConnPeerRecvData(this, Data, len);
 
 	return 0;
 }
@@ -174,7 +176,7 @@ int JtEventConnPeer::DoConnect(string Ip, uint16_t Port, int TimeOut)
 
 	if(m_Sink)
 	{
-		m_Sink->OnConnected(this);
+		m_Sink->OnJtEventConnPeerConnected(this);
 	}
 
 	return 0;
@@ -219,5 +221,15 @@ int JtEventConnPeer::SetJtEventCallbackSink(JtEventConnPeerCallbackSink *Sink, v
 	m_EventCallbackUserData = UserData;
 		
 	return 0;
+}
+int JtEventConnPeer::TestCmd()
+{
+	ExCommand Head;
+	Head.nSrcType				= 0;
+	Head.nCmdType				= JTEVENT_TEST_CMD;
+	Head.nCmdSeq				= GetServer()->GenSeq();
+	Head.nContentSize			= 0;
+
+	return SendData((const char*)&Head,sizeof(Head));
 }
 

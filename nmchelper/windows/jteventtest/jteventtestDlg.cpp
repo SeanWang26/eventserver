@@ -55,6 +55,7 @@ CjteventtestDlg::CjteventtestDlg(CWnd* pParent /*=NULL*/)
 	EventServer = 0;
 	EventListen = 0;
 	EventConnect = 0;
+	ConnedPeer = 0;
 }
 
 void CjteventtestDlg::DoDataExchange(CDataExchange* pDX)
@@ -69,6 +70,8 @@ BEGIN_MESSAGE_MAP(CjteventtestDlg, CDialogEx)
 	ON_BN_CLICKED(IDOK, &CjteventtestDlg::OnBnClickedOk)
 	ON_BN_CLICKED(IDC_BUTTON_TEST_CMD, &CjteventtestDlg::OnBnClickedButtonTestCmd)
 	ON_BN_CLICKED(IDC_BUTTON_TryConnect, &CjteventtestDlg::OnBnClickedButtonTryconnect)
+	ON_BN_CLICKED(IDC_BUTTON_connect_test, &CjteventtestDlg::OnBnClickedButtonconnecttest)
+	ON_BN_CLICKED(IDC_BUTTON_beconnect_test, &CjteventtestDlg::OnBnClickedButtonbeconnecttest)
 END_MESSAGE_MAP()
 
 
@@ -108,7 +111,7 @@ BOOL CjteventtestDlg::OnInitDialog()
 
 	Sleep(2000);
 	EventListen = new JtEventListen(20000);
-	
+	EventListen->SetJtEventCallbackSink(this,NULL);
 	EventServer->AddPeer(EventListen);
 
 	//Sleep(20000);
@@ -190,10 +193,65 @@ void CjteventtestDlg::OnBnClickedButtonTestCmd()
 
 void CjteventtestDlg::OnBnClickedButtonTryconnect()
 {
-	EventConnect->DoConnect("127.0.0.1", 20000, 3);
+	EventConnect = new JtEventConnect();
+	EventConnect->SetJtEventCallbackSink(this,NULL);
+	int res = EventConnect->DoConnect("127.0.0.1", 20000, 3);
+
+	EventServer->AddPeer(EventConnect);
 }
-int CjteventtestDlg::OnAccept(JtEventConnPeer *ConnPeer)
+int CjteventtestDlg::OnAccept(JtEventConnPeer *ConnedPeer_)
 {
+	if(ConnedPeer_)
+	{
+		ConnedPeer = ConnedPeer_;
+		ConnedPeer->SetJtEventCallbackSink(this, NULL);
+		EventServer->AddPeer(ConnedPeer);
+	}
 
 	return 0;
+}
+int CjteventtestDlg::OnRecvData(void* Cookie, unsigned char* pData, int dataLen)
+{
+	MessageBox(_T("OnRecvData"), _T("OnRecvData"), MB_OK);
+	return 0;
+}
+int CjteventtestDlg::OnConnected(void* Cookie)
+{
+	return 0;
+}
+int CjteventtestDlg::OnClosed(void* Cookie)
+{
+	return 0;
+}
+int CjteventtestDlg::OnReConnected(void* Cookie)
+{
+	return 0;
+}
+int CjteventtestDlg::OnJtEventConnPeerRecvData(void* Cookie, unsigned char* pData, int dataLen)
+{
+	MessageBox(_T("OnJtEventConnPeerRecvData"), _T("OnJtEventConnPeerRecvData"), MB_OK);
+	return 0;
+}
+int CjteventtestDlg::OnJtEventConnPeerConnected(void* Cookie)
+{
+	return 0;
+}
+int CjteventtestDlg::OnJtEventConnPeerClosed(void* Cookie)
+{
+	return 0;
+}
+int CjteventtestDlg::OnJtEventConnPeerReConnected(void* Cookie)
+{
+	return 0;
+}
+
+void CjteventtestDlg::OnBnClickedButtonconnecttest()
+{
+	EventConnect->TestCmd();
+}
+
+
+void CjteventtestDlg::OnBnClickedButtonbeconnecttest()
+{
+	ConnedPeer->TestCmd();
 }

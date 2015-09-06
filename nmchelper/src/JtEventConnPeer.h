@@ -30,10 +30,10 @@ using namespace std;
 class  JtEventConnPeerCallbackSink
 {
 public:
-	virtual int OnRecvData(void* Cookie, unsigned char* pData, int dataLen)=0;
-	virtual int OnConnected(void* Cookie)=0;
-	virtual int OnClosed(void* Cookie)=0;
-	virtual int OnReConnected(void* Cookie)=0;
+	virtual int OnJtEventConnPeerRecvData(void* Cookie, unsigned char* pData, int dataLen)=0;
+	virtual int OnJtEventConnPeerConnected(void* Cookie)=0;
+	virtual int OnJtEventConnPeerClosed(void* Cookie)=0;
+	virtual int OnJtEventConnPeerReConnected(void* Cookie)=0;
 };
 
 class JtEventConnPeer : public JtEventPeer, public OnGetFrameCallBack
@@ -75,6 +75,8 @@ public:
 	
 	int SendData(const char* pData,int dataLen);
 	int SetJtEventCallbackSink(JtEventConnPeerCallbackSink *Sink, void* UserData);
+
+	int TestCmd();
 };
 
 

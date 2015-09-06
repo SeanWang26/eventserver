@@ -24,6 +24,7 @@ class JtEventConnect : public JtEventPeer, public OnGetFrameCallBack
 private:
 	string m_Ip;
 	struct bufferevent *bev;
+	evutil_socket_t m_sock ;
 	CFramePkg<struct ST_ICMS_CMD_HEADER> m_FramePkg;
 
 	JtConnectEventCallbackSink *m_Sink;
@@ -58,6 +59,8 @@ public:
 	//int DoSend(uint8_t *Data, uint32_t Len);
 	int SendData(const char* pData,int dataLen);
 	int SetJtEventCallbackSink(JtConnectEventCallbackSink *Sink, void* UserData);
+
+	int TestCmd();
 };
 
 

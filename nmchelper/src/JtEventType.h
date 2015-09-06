@@ -29,6 +29,12 @@ class JtEventPeer
 private:
 	JtEventServer *m_Server;
 	int m_Timeout;
+protected:
+	int SetServer(JtEventServer *Server)
+	{
+		m_Server = Server;
+		return 0;
+	}
 public:
 	JtEventPeer()
 	{}

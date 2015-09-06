@@ -92,8 +92,10 @@ void JtEventListen::accept_error_cb(struct evconnlistener *listener, void *ctx)
 	////////event_base_loopexit(base, NULL);
 }
 
-int JtEventListen::OnAddToServer(JtEventServer *m_Server)
+int JtEventListen::OnAddToServer(JtEventServer *Server)
 {
+	SetServer(Server);
+
 	struct sockaddr_in sin;
 
 	memset(&sin, 0, sizeof(sin));
@@ -101,7 +103,7 @@ int JtEventListen::OnAddToServer(JtEventServer *m_Server)
     sin.sin_addr.s_addr = htonl(0);
     sin.sin_port = htons(m_Port);
 
-    listener = evconnlistener_new_bind(m_Server->GetBase(), accept_conn_cb, this,
+    listener = evconnlistener_new_bind(Server->GetBase(), accept_conn_cb, this,
 		LEV_OPT_CLOSE_ON_FREE|LEV_OPT_REUSEABLE|LEV_OPT_CLOSE_ON_EXEC, -1,
         (struct sockaddr*)&sin, sizeof(sin));
 
@@ -122,6 +124,7 @@ int JtEventListen::SetJtEventCallbackSink(JtListenEventCallbackSink *Sink, void*
 {
 	m_Sink = Sink;
 	m_EventCallbackUserData = UserData;
+	return 0;
 }
 int JtEventListen::SetJtEventListenPort(int Port)
 {

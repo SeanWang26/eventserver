@@ -61,4 +61,9 @@ public:
 	afx_msg void OnBnClickedButtonTryconnect();
 	afx_msg void OnBnClickedButtonconnecttest();
 	afx_msg void OnBnClickedButtonbeconnecttest();
+	afx_msg void OnBnClickedButtonconnectdisconnect();
+	afx_msg void OnBnClickedButtonconneddisconnect();
+	afx_msg void OnBnClickedButtonstartserver();
+	afx_msg void OnBnClickedButtonstartlisten();
+	afx_msg void OnBnClickedButtonstopserver();
 };

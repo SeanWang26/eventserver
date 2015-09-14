@@ -72,6 +72,11 @@ BEGIN_MESSAGE_MAP(CjteventtestDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_TryConnect, &CjteventtestDlg::OnBnClickedButtonTryconnect)
 	ON_BN_CLICKED(IDC_BUTTON_connect_test, &CjteventtestDlg::OnBnClickedButtonconnecttest)
 	ON_BN_CLICKED(IDC_BUTTON_beconnect_test, &CjteventtestDlg::OnBnClickedButtonbeconnecttest)
+	ON_BN_CLICKED(IDC_BUTTON_connect_disconnect, &CjteventtestDlg::OnBnClickedButtonconnectdisconnect)
+	ON_BN_CLICKED(IDC_BUTTONconned_disconnect, &CjteventtestDlg::OnBnClickedButtonconneddisconnect)
+	ON_BN_CLICKED(IDC_BUTTONStartserver, &CjteventtestDlg::OnBnClickedButtonstartserver)
+	ON_BN_CLICKED(IDC_BUTTON_startlisten, &CjteventtestDlg::OnBnClickedButtonstartlisten)
+	ON_BN_CLICKED(IDC_BUTTON_stopserver, &CjteventtestDlg::OnBnClickedButtonstopserver)
 END_MESSAGE_MAP()
 
 
@@ -105,14 +110,6 @@ BOOL CjteventtestDlg::OnInitDialog()
 	//  执行此操作
 	SetIcon(m_hIcon, TRUE);			// 设置大图标
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
-
-	EventServer = new JtEventServer();
-	EventServer->Start();
-
-	Sleep(2000);
-	EventListen = new JtEventListen(20000);
-	EventListen->SetJtEventCallbackSink(this,NULL);
-	EventServer->AddPeer(EventListen);
 
 	//Sleep(20000);
 	//EventServer->Stop();
@@ -187,25 +184,39 @@ void CjteventtestDlg::OnBnClickedOk()
 
 void CjteventtestDlg::OnBnClickedButtonTestCmd()
 {
-	EventServer->TestCmd();
+	if(EventServer)
+		EventServer->TestCmd();
 }
 
 
 void CjteventtestDlg::OnBnClickedButtonTryconnect()
 {
-	EventConnect = new JtEventConnect();
-	EventConnect->SetJtEventCallbackSink(this,NULL);
-	int res = EventConnect->DoConnect("127.0.0.1", 20000, 3);
+	if(EventServer&&EventConnect==NULL)
+	{
+		EventConnect = new JtEventConnect();
+		EventConnect->SetJtEventCallbackSink(this,NULL);
+		int res = EventConnect->DoConnect("127.0.0.1", 20000, 3);
 
-	EventServer->AddPeer(EventConnect);
+		EventServer->AddPeer(EventConnect);
+	}
+
 }
 int CjteventtestDlg::OnAccept(JtEventConnPeer *ConnedPeer_)
 {
-	if(ConnedPeer_)
+	//assert(ConnedPeer_);
+	if(EventServer)
 	{
-		ConnedPeer = ConnedPeer_;
-		ConnedPeer->SetJtEventCallbackSink(this, NULL);
-		EventServer->AddPeer(ConnedPeer);
+		if(ConnedPeer_)
+		{
+			ConnedPeer = ConnedPeer_;
+			ConnedPeer->SetJtEventCallbackSink(this, NULL);
+			EventServer->AddPeer(ConnedPeer);		
+		}
+
+	}
+	else
+	{
+		delete ConnedPeer;
 	}
 
 	return 0;
@@ -221,6 +232,7 @@ int CjteventtestDlg::OnConnected(void* Cookie)
 }
 int CjteventtestDlg::OnClosed(void* Cookie)
 {
+	MessageBox(_T("OnClosed"), _T("OnClosed"), MB_OK);
 	return 0;
 }
 int CjteventtestDlg::OnReConnected(void* Cookie)
@@ -238,20 +250,76 @@ int CjteventtestDlg::OnJtEventConnPeerConnected(void* Cookie)
 }
 int CjteventtestDlg::OnJtEventConnPeerClosed(void* Cookie)
 {
+	MessageBox(_T("OnJtEventConnPeerClosed"), _T("OnJtEventConnPeerClosed"), MB_OK);
 	return 0;
 }
 int CjteventtestDlg::OnJtEventConnPeerReConnected(void* Cookie)
 {
+	
 	return 0;
 }
 
 void CjteventtestDlg::OnBnClickedButtonconnecttest()
 {
-	EventConnect->TestCmd();
+	if(EventConnect)
+		EventConnect->TestCmd();
 }
 
 
 void CjteventtestDlg::OnBnClickedButtonbeconnecttest()
 {
-	ConnedPeer->TestCmd();
+	if(ConnedPeer)
+		ConnedPeer->TestCmd();
+}
+
+void CjteventtestDlg::OnBnClickedButtonconnectdisconnect()
+{
+	if(EventConnect)
+	{
+		EventConnect->DoDisconnect();
+		delete EventConnect;
+		EventConnect = 0;
+	}
+}
+
+void CjteventtestDlg::OnBnClickedButtonconneddisconnect()
+{
+	if(ConnedPeer)
+	{
+		ConnedPeer->DoDisconnect();
+		ConnedPeer = NULL;
+	}
+}
+
+
+void CjteventtestDlg::OnBnClickedButtonstartserver()
+{
+	if(EventServer==NULL)
+	{
+		EventServer = new JtEventServer();
+		EventServer->Start();	
+	}
+
+}
+
+
+void CjteventtestDlg::OnBnClickedButtonstartlisten()
+{
+	if(EventServer && EventListen==NULL)
+	{
+		EventListen = new JtEventListen(20000);
+		EventListen->SetJtEventCallbackSink(this,NULL);
+		EventServer->AddPeer(EventListen);	
+	}
+}
+
+
+void CjteventtestDlg::OnBnClickedButtonstopserver()
+{
+	if(EventServer)
+	{
+		EventServer->Stop();
+		delete EventServer;
+		EventServer = NULL;
+	}
 }

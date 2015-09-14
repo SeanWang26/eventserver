@@ -103,7 +103,6 @@
     <None Include="res\jteventtest.rc2" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\src\CachedAffair.h" />
     <ClInclude Include="..\..\src\COMM_HEADER.h" />
     <ClInclude Include="..\..\src\FramePkg.h" />
     <ClInclude Include="..\..\src\JtEventConnect.h" />
@@ -121,7 +120,6 @@
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\src\CachedAffair.cpp" />
     <ClCompile Include="..\..\src\JtEventConnect.cpp" />
     <ClCompile Include="..\..\src\JtEventConnPeer.cpp" />
     <ClCompile Include="..\..\src\JtEventListen.cpp" />

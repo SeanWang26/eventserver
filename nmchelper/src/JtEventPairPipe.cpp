@@ -48,6 +48,17 @@ JtEventPairPipe::JtEventPairPipe()
 
 JtEventPairPipe::~JtEventPairPipe()
 {
+	if(pairbev[0])
+	{
+		bufferevent_free(pairbev[0]);
+		pairbev[0] = NULL;
+	}
+	
+	if(pairbev[1])
+	{
+		//bufferevent_disable(pairbev[1], EV_READ|EV_WRITE);
+		//bufferevent_free(pairbev[1]);
+	}
 }
 int JtEventPairPipe::AddToServer(JtEventServer *EventServer)
 {

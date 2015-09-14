@@ -27,6 +27,13 @@ struct event_base;
 
 class JtEventPairPipe;
 
+class  JtEventServerCallbackSink
+{
+public:
+	virtual int OnServerStart(JtEventServer* Server)=0;
+	virtual int OnServerStop(JtEventServer* Server)=0;
+};
+
 class JtEventServer : public JtPairPipeEventCallbackSink
 {
 private:
@@ -44,6 +51,7 @@ private:
 	static void *Static_StartInThread(void *arg);
 #endif
 
+	int Started();
 	int EventLoop();
 	
 	virtual int OnRecvData(void* Cookie, unsigned char* pData, int dataLen);
@@ -55,14 +63,13 @@ public:
 	JtEventServer();
 	~JtEventServer();
 
-	static JtEventServer *GetInstance();
 	int Start();
 	
 	int Stop();
 	int GenSeq();
 	struct event_base *GetBase() { return base; }
 
-	int AddPeer(JtEventPeer *Peer);
+	int AddPeer(JtEventPeer* Peer);
 	int TestCmd();
 };
 

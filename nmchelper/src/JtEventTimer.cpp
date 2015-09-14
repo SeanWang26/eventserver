@@ -11,8 +11,12 @@ JtEventTimer::JtEventTimer()
 
 JtEventTimer::~JtEventTimer()
 {
-
-
+	//if(timeout)
+	//{
+		event_del(&timeout);
+		///event_free(&timeout); //作为定时器并未分配内存的
+		//timeout = NULL;
+	//}
 }
 
 void JtEventTimer::TimeoutCallBack(evutil_socket_t fd, short event, void *arg)

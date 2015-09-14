@@ -42,11 +42,15 @@
 
 JtEventServer::JtEventServer() : base(NULL), m_Started(0)
 {
-	pEventPairPipe = NULL;
-#ifdef _WIN32	
-	WSADATA wsa_data;	
-	WSAStartup(0x0201, &wsa_data);
+#if (defined(WIN32) || defined(WIN64))
+		WSADATA wsa_data;	
+		WSAStartup(0x0201, &wsa_data);
+		evthread_use_windows_threads();
+#else
+		evthread_use_pthreads();
 #endif
+
+	pEventPairPipe = NULL;
 }
 JtEventServer::~JtEventServer()
 {
@@ -56,50 +60,9 @@ JtEventServer::~JtEventServer()
 #endif
 }
 
-#if (defined(WIN32) || defined(WIN64))
 
-#else
-
-static pthread_once_t random_is_initialized = PTHREAD_ONCE_INIT;
-
-#endif
-
-
-
-static JtEventServer *g_JtEventServer = NULL;
-
-void JtEventServer::InitJtEventServer(void)
-{
-	if(g_JtEventServer==NULL)
-	{
-		g_JtEventServer = new JtEventServer();
-		g_JtEventServer->Start();
-		//sleep(3);
-	}
-}
-
-JtEventServer *JtEventServer::GetInstance()
-{
-#if (defined(WIN32) || defined(WIN64))
-	if(g_JtEventServer==NULL)
-	{
-		g_JtEventServer = new JtEventServer();
-		g_JtEventServer->Start();
-		//sleep(3);
-	}
-#else
-
-	pthread_once(&random_is_initialized, InitJtEventServer);
-
-#endif
-
-	//jtprintf("[%s]g_JtEventServer %p\n", __FUNCTION__, g_JtEventServer);
-	
-	return g_JtEventServer;
-}
 
 #if (defined(WIN32) || defined(WIN64))
-
 void JtEventServer::Static_StartInThread(void *arg)
 {
 	JtEventServer *Self = (JtEventServer *)arg;
@@ -117,6 +80,10 @@ void* JtEventServer::Static_StartInThread(void *arg)
 }
 #endif
 
+int JtEventServer::Started()
+{
+	return 0;
+}
 int JtEventServer::EventLoop()
 {
 	//默认存在一个定时器
@@ -128,10 +95,15 @@ int JtEventServer::EventLoop()
 	
 	//jtprintf("[%s]event_base_dispatch before\n", __FUNCTION__);
 
+	Started();
+
 	int res = event_base_dispatch(base);
 	int ss = res;
 
 	delete Timer;
+	delete pEventPairPipe;
+
+	//必须先移除所有的事件，然后再调用event_base_free
 
 	event_base_free(base);
 
@@ -163,8 +135,13 @@ int JtEventServer::OnRecvData(void* Cookie, unsigned char* pData, int dataLen)
 		}
 		else if(pHead->nCmdType==JTEVENT_TEST_CMD)
 		{
-			MessageBox(NULL, _T("测试命令"), _T("测试命令"), MB_OK);
+			//MessageBox(NULL, _T("测试命令"), _T("测试命令"), MB_OK);
 		}
+		else if(pHead->nCmdType==JTEVENT_NOTIFY_STOP_LOOP)
+		{
+			event_base_loopexit(base,NULL);
+		}
+		
 	}
 	
 	return 0;
@@ -183,18 +160,7 @@ int JtEventServer::Start()
 {
 	if(!m_Started)
 	{
-		int res = 0;
 		m_Started = 1;
-
-#if (defined(WIN32) || defined(WIN64))
-		res = evthread_use_windows_threads();
-#else
-		res = evthread_use_pthreads();
-#endif
-		if(res)
-		{
-			//jtprintf("[%s]evthread_use_pthreads failed\n", __FUNCTION__);
-		}
 		
 		base = event_base_new();
 		if(!base)
@@ -205,9 +171,10 @@ int JtEventServer::Start()
 
 		//res = bufferevent_pair_new(base, int options,
 		//struct bufferevent *pair[2]);
-
+		int res;
 #if (defined(WIN32) || defined(WIN64))
 		_beginthread(Static_StartInThread, NULL, this);
+		Sleep(2000);
 #else
 		pthread_t tid;
 		pthread_attr_t attr;
@@ -239,9 +206,17 @@ int JtEventServer::Stop()
 
 	pEventPairPipe->SendCmd((const char*)&Head, sizeof(Head));
 
+#if (defined(WIN32) || defined(WIN64))
+	Sleep(2000);
+#else
+	sleep(2);
+#endif
 	return 0;
 }
-int JtEventServer::AddPeer(JtEventPeer *Peer)
+
+
+
+int JtEventServer::AddPeer(JtEventPeer* Peer)
 {
 	//lock.... to do.....
 	//assert(Peer);
@@ -269,8 +244,6 @@ int JtEventServer::NotifyAddPeer()
 	Head.nCmdSeq				= GenSeq();
 	Head.nContentSize			= 0;
 
-	//char ddd[1024];
-	//pEventPairPipe->SendCmd((const char*)ddd,1024);
 	pEventPairPipe->SendCmd((const char*)&Head, sizeof(Head));
 
 	return 0;

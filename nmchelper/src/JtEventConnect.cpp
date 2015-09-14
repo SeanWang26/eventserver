@@ -279,8 +279,9 @@ int JtEventConnect::DoConnect(string Ip, uint16_t Port, int TimeOut)
 
 connected:
 	//jtprintf("[%s]DoConnect select ok, sock %d\n", __FUNCTION__, sock);
-
+	
 	m_FramePkg.SetCallBack(this);
+	m_FramePkg.Init();
 	//BEV_OPT_DEFER_CALLBACKS
 
 	//jtprintf("[%s]GetServer()->GetBase() %p\n", __FUNCTION__, GetServer()->GetBase());
@@ -318,7 +319,6 @@ int JtEventConnect::DoDisconnect()
 		//bufferevent_setcb(bev, NULL, NULL, NULL, this);
 		bufferevent_free(bev);
 		bev=0;
-		m_FramePkg.Init();
 	}
 
 	return 0;

@@ -179,6 +179,8 @@ int JtEventConnPeer::DoConnect(string Ip, uint16_t Port, int TimeOut)
 		m_Sink->OnJtEventConnPeerConnected(this);
 	}
 
+	m_FramePkg.Init();
+
 	return 0;
 }
 int JtEventConnPeer::DoDisconnect()
@@ -189,7 +191,6 @@ int JtEventConnPeer::DoDisconnect()
 		//bufferevent_setcb(bev, NULL, NULL, NULL, this);
 		bufferevent_free(bev);
 		bev=0;
-		m_FramePkg.Init();
 	}
 
 	return 0;

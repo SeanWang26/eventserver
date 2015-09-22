@@ -30,6 +30,7 @@ private:
 	JtConnectEventCallbackSink *m_Sink;
 	void* m_EventCallbackUserData;
 
+	void DoDisconnectInner(int arg);
 private:
 	virtual int OnGetFrame(unsigned char* Data, int len);
 

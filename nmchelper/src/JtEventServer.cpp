@@ -135,7 +135,14 @@ int JtEventServer::OnRecvData(void* Cookie, unsigned char* pData, int dataLen)
 		}
 		else if(pHead->nCmdType==JTEVENT_TEST_CMD)
 		{
-			//MessageBox(NULL, _T("≤‚ ‘√¸¡Ó"), _T("≤‚ ‘√¸¡Ó"), MB_OK);
+			//lock me to do ....
+			std::vector<AsynFunctor> _AsynFuncS;
+			_AsynFuncS.swap(m_AsynFuncS);
+
+			for (size_t i = 0; i < _AsynFuncS.size(); ++i)
+			{
+				_AsynFuncS[i](1);
+			}
 		}
 		else if(pHead->nCmdType==JTEVENT_NOTIFY_STOP_LOOP)
 		{
@@ -214,13 +221,15 @@ int JtEventServer::Stop()
 	return 0;
 }
 
-
+void JtEventServer::AddPeerInner(int arg)
+{
+	MessageBox(NULL, _T("≤‚ ‘√¸¡Ó"), _T("≤‚ ‘√¸¡Ó"), MB_OK);
+}
 
 int JtEventServer::AddPeer(JtEventPeer* Peer)
 {
 	//lock.... to do.....
 	//assert(Peer);
-
 	m_PeerWait2AddS.push_back(Peer);
 
 	NotifyAddPeer();
@@ -233,6 +242,21 @@ int JtEventServer::TestCmd()
 	Head.nCmdType				= JTEVENT_TEST_CMD;
 	Head.nCmdSeq				= GenSeq();
 	Head.nContentSize			= 0;
+
+	m_AsynFuncS.push_back(std::tr1::bind(&JtEventServer::AddPeerInner,this, 1));
+
+	return pEventPairPipe->SendCmd((const char*)&Head, sizeof(Head));
+}
+int JtEventServer::DoInAsyn(AsynFunctor &&Functor)
+{
+
+	ExCommand Head;
+	Head.nSrcType				= 0;
+	Head.nCmdType				= JTEVENT_TEST_CMD;
+	Head.nCmdSeq				= GenSeq();
+	Head.nContentSize			= 0;
+
+	m_AsynFuncS.push_back(Functor);
 
 	return pEventPairPipe->SendCmd((const char*)&Head, sizeof(Head));
 }

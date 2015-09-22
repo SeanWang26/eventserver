@@ -2,6 +2,8 @@
 #define JTEVENTSERVER_H
 
 #include <list>
+#include <vector>
+#include <functional>
 
 #if (defined(WIN32) || defined(WIN64))
 	#if (defined(WIN32))
@@ -37,8 +39,11 @@ public:
 class JtEventServer : public JtPairPipeEventCallbackSink
 {
 private:
+	typedef std::function<void(int)> AsynFunctor;
 	//lock
 	std::list<JtEventPeer *> m_PeerWait2AddS;
+
+	std::vector<AsynFunctor> m_AsynFuncS;
 
 	struct event_base *base;
 	int m_Started;
@@ -54,6 +59,8 @@ private:
 	int Started();
 	int EventLoop();
 	
+	void AddPeerInner(int arg);
+
 	virtual int OnRecvData(void* Cookie, unsigned char* pData, int dataLen);
 	virtual int OnStateChanged(void* Cookie);
 
@@ -71,6 +78,8 @@ public:
 
 	int AddPeer(JtEventPeer* Peer);
 	int TestCmd();
+
+	int DoInAsyn(AsynFunctor &&Functor);
 };
 
 #endif

@@ -50,11 +50,11 @@ JtEventConnect::~JtEventConnect()
 	DoDisconnect();
 }
 
-int JtEventConnect::OnAddToServer(JtEventServer *m_Server)
+int JtEventConnect::OnAddToServer(JtEventServer *Server)
 {
-	SetServer(m_Server);
+	SetServer(Server);
 
-    bev = bufferevent_socket_new(m_Server->GetBase(), -1, BEV_OPT_CLOSE_ON_FREE|BEV_OPT_THREADSAFE);//BEV_OPT_THREADSAFE
+    bev = bufferevent_socket_new(Server->GetBase(), -1, BEV_OPT_CLOSE_ON_FREE|BEV_OPT_THREADSAFE);//BEV_OPT_THREADSAFE
 	if(!bev)//
 	{
 		//jtprintf("[%s]DoConnect bev %p\n", __FUNCTION__, bev);
@@ -311,7 +311,7 @@ connected:
 	*/
 	return 0;
 }
-int JtEventConnect::DoDisconnect()
+void JtEventConnect::DoDisconnectInner(int arg)
 {
 	if(bev)
 	{
@@ -320,7 +320,19 @@ int JtEventConnect::DoDisconnect()
 		bufferevent_free(bev);
 		bev=0;
 	}
-
+}
+int JtEventConnect::DoDisconnect()
+{
+	GetServer()->DoInAsyn(std::tr1::bind(&JtEventConnect::DoDisconnectInner,this,2));
+/*
+	if(bev)
+	{
+		bufferevent_disable(bev, EV_READ|EV_WRITE);
+		//bufferevent_setcb(bev, NULL, NULL, NULL, this);
+		bufferevent_free(bev);
+		bev=0;
+	}
+*/
 	return 0;
 }
 

@@ -21,8 +21,7 @@
 
 #include "JtEventType.h"
 #include "JtEventPairPipe.h"
-
-
+#include "CachedAffair.h"
 
 class JtEventServer;
 struct event_base;
@@ -39,11 +38,28 @@ public:
 class JtEventServer : public JtPairPipeEventCallbackSink
 {
 private:
-	typedef std::function<void(int)> AsynFunctor;
+	typedef std::function<void(int,int)> AsynFunctor;
+	
+	class AsyncEvent 
+	{
+	public:
+		AsynFunctor m_Functor;
+		int m_Cmd;
+		int m_Seq;
+
+		AsyncEvent(AsynFunctor &&_Functor, int Cmd, int Seq):m_Functor(_Functor), m_Cmd(Cmd), m_Seq(Seq)
+		{
+			
+		}
+	};
+
+	CCachedAffairMapLock m_Lock;
+	map<unsigned long long, tr1::shared_ptr<CCachedAffair> > m_cachedMap;
+
 	//lock
 	std::list<JtEventPeer *> m_PeerWait2AddS;
 
-	std::vector<AsynFunctor> m_AsynFuncS;
+	std::vector<AsyncEvent> m_AsynEventS;
 
 	struct event_base *base;
 	int m_Started;
@@ -59,7 +75,7 @@ private:
 	int Started();
 	int EventLoop();
 	
-	void AddPeerInner(int arg);
+	void AddPeerInner(int cmd, int seq);
 
 	virtual int OnRecvData(void* Cookie, unsigned char* pData, int dataLen);
 	virtual int OnStateChanged(void* Cookie);

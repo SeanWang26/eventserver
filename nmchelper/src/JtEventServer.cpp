@@ -40,6 +40,8 @@
 #include "JtEventServer.h"
 #include "JtEventTimer.h"
 
+static int JtEventServer_Seq=0;
+
 JtEventServer::JtEventServer() : base(NULL), m_Started(0)
 {
 #if (defined(WIN32) || defined(WIN64))
@@ -136,12 +138,12 @@ int JtEventServer::OnRecvData(void* Cookie, unsigned char* pData, int dataLen)
 		else if(pHead->nCmdType==JTEVENT_TEST_CMD)
 		{
 			//lock me to do ....
-			std::vector<AsynFunctor> _AsynFuncS;
-			_AsynFuncS.swap(m_AsynFuncS);
+			std::vector<AsyncEvent> _AsynEventS;
+			_AsynEventS.swap(m_AsynEventS);
 
-			for (size_t i = 0; i < _AsynFuncS.size(); ++i)
+			for (size_t i = 0; i < _AsynEventS.size(); ++i)
 			{
-				_AsynFuncS[i](1);
+				_AsynEventS[i].m_Functor(_AsynEventS[i].m_Cmd, _AsynEventS[i].m_Seq);
 			}
 		}
 		else if(pHead->nCmdType==JTEVENT_NOTIFY_STOP_LOOP)
@@ -149,6 +151,8 @@ int JtEventServer::OnRecvData(void* Cookie, unsigned char* pData, int dataLen)
 			event_base_loopexit(base,NULL);
 		}
 		
+		CCachedAffairMap::Static_CheckBeExptedData(m_cachedMap, m_Lock
+		, unsigned char* pData, long dataLen);
 	}
 	
 	return 0;
@@ -221,7 +225,7 @@ int JtEventServer::Stop()
 	return 0;
 }
 
-void JtEventServer::AddPeerInner(int arg)
+void JtEventServer::AddPeerInner(int cmd, int seq)
 {
 	MessageBox(NULL, _T("²âÊÔÃüÁî"), _T("²âÊÔÃüÁî"), MB_OK);
 }
@@ -243,9 +247,17 @@ int JtEventServer::TestCmd()
 	Head.nCmdSeq				= GenSeq();
 	Head.nContentSize			= 0;
 
-	m_AsynFuncS.push_back(std::tr1::bind(&JtEventServer::AddPeerInner,this, 1));
+	AsyncEvent Event(std::tr1::bind(&JtEventServer::AddPeerInner,this,std::tr1::placeholders::_1,std::tr1::placeholders::_2), JTEVENT_TEST_CMD, Head.nCmdSeq);
+	
+	m_AsynEventS.push_back(Event);
 
-	return pEventPairPipe->SendCmd((const char*)&Head, sizeof(Head));
+	int res = pEventPairPipe->SendCmd((const char*)&Head, sizeof(Head));
+
+	ST_AFFAIR_CALLBACK AffairCallBack(NULL);
+	CCachedAffairMap::Static_PushNewAffair(m_cachedMap, m_Lock
+		, &AffairCallBack, Head.nCmdSeq, JTEVENT_TEST_CMD, JTEVENT_TEST_CMD);
+
+	return 0;
 }
 int JtEventServer::DoInAsyn(AsynFunctor &&Functor)
 {
@@ -256,7 +268,7 @@ int JtEventServer::DoInAsyn(AsynFunctor &&Functor)
 	Head.nCmdSeq				= GenSeq();
 	Head.nContentSize			= 0;
 
-	m_AsynFuncS.push_back(Functor);
+	///m_AsynFuncS.push_back(Functor);
 
 	return pEventPairPipe->SendCmd((const char*)&Head, sizeof(Head));
 }

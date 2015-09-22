@@ -277,6 +277,8 @@ void CjteventtestDlg::OnBnClickedButtonconnectdisconnect()
 	if(EventConnect)
 	{
 		EventConnect->DoDisconnect();
+
+		Sleep(50000);
 		delete EventConnect;
 		EventConnect = 0;
 	}

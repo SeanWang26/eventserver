@@ -27,7 +27,6 @@ class NMCDeviceImpl : public JtConnectEventCallbackSink
 	void*				  m_puserdata;
 
 	JtEventConnect*       m_Conn;
-	JtStreamSender*       m_StreamSender;
 	map<unsigned long long, tr1::shared_ptr<CCachedAffair> > m_cachedAffairMap;
 	class CCachedAffairMapLock  m_lockCachedAffair;
 
@@ -46,8 +45,6 @@ class NMCDeviceImpl : public JtConnectEventCallbackSink
 	static void* Static_HeartBeatThread(void* arg);
 	void* HeartBeatThread();
 #endif
-
-	void* nvrhandle;
 
 	map<int, struct st_jn_device> m_NvrDeviceS; 
 
@@ -71,6 +68,18 @@ private:
 	static int static_OnGotHeartBeatOverTime(long cookie);
 	int OnGotHeartBeatOverTime();
 
+	static int static_OnGetClearWindowSignalSourceRsp(long cookie, unsigned char* pData, int dataLen);
+	int OnGetClearWindowSignalSourceRsp(unsigned char* pData, int dataLen);
+
+	static int static_OnGotClearWindowSignalSourceOverTime(long cookie);
+	int OnGotClearWindowSignalSourceOverTime();
+
+	static int static_OnGetSetWindowSignalSourceRsp(long cookie, unsigned char* pData, int dataLen);
+	int OnGetSetWindowSignalSourceRsp(unsigned char* pData, int dataLen);
+
+	static int static_OnGotSetWindowSignalSourceOverTime(long cookie);
+	int OnGotSetWindowSignalSourceOverTime();
+	
 	int GetSignalSourceInner(struct login_info *loginfo, struct st_jn_equ **equ, int *equcnt);
 
 public:
@@ -78,6 +87,8 @@ public:
 	virtual ~NMCDeviceImpl(void);
 
 	static int GlobalInit();
+	static int GlobalUninit();
+
 
 	int Init(nmc_status_callback status_callback, void* userdata);
 	long Login(struct login_info *info);

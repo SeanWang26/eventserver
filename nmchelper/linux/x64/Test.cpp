@@ -2,12 +2,14 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <assert.h>
+#include <time.h>
 #include <stdio.h>
 #include <string.h>
 #include "NMCUser.h"
 #include <execinfo.h>
 
 #include <dlfcn.h>
+#include <pthread.h>
 
 //#include "usersdk.h"
 
@@ -57,6 +59,17 @@ typedef int (JT_CALL_TYPE *jt_reboot_control_dl)(void* handle, struct stReboot_R
 typedef int (JT_CALL_TYPE *jt_set_output_dl)(struct device *, struct stSetOutput_Req *req, struct stSetOutput_Rsp *rsp);//输出控制
 */
 
+inline int create_detached_thread(pthread_t *tid, void* (*func)(void *), void* arg)
+{
+	int res = 0;
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+	res = pthread_create(tid, &attr, func, arg);
+	pthread_attr_destroy(&attr);
+
+	return res;
+}
 static void jt_show_signal_type(int value)
 {
 	switch(value)
@@ -133,7 +146,7 @@ static void jt_handle_exception(int value)
 		//printf("kill -9 $(lsof -i:%d | sed -n '2p' | awk '{print $2}') \n", gLoginPort);
 		//sprintf(strKillTheSamePortLnvrCmd, "kill -9 $(lsof -i:%d | sed -n '2p' | awk '{print $2}')", gLoginPort);
 		//system(strKillTheSamePortLnvrCmd);
-		assert(false);
+		exit(0);
 	}
 
 }
@@ -203,14 +216,16 @@ int m_WndId = 0;
 
 void get_output(long m_handle)
 {
+	//printf("2-get_output-\n");
 	struct st_output_layout *ppoutput_layout = NULL;
 	int output_layout_cnt = 0;
 
 	//由nmc_get_output得到的都是单窗口类型的
 	int res = nmc_get_output(m_handle, -1, &ppoutput_layout, &output_layout_cnt);
+	//printf("3-get_output-\n");
 	if(res)
 	{
-		printf("nmc_get_output failed!\n");
+		printf("nmc_get_output failed! %d\n", res);
 		return ;
 	}
 
@@ -228,8 +243,14 @@ void get_output(long m_handle)
 		}
 	}
 
-	m_WndId = ppoutput_layout[0].window_info[0].id;
+	printf("5-get_output- ppoutput_layout %p, output_layout_cnt %d\n", ppoutput_layout, output_layout_cnt);
+
+	if(output_layout_cnt)
+		m_WndId = ppoutput_layout[0].window_info[0].id;
+	
 	nmc_free_output_info(ppoutput_layout, output_layout_cnt);
+
+	//printf("4-get_output-\n");
 }
 void get_source(long m_handle)
 {
@@ -282,30 +303,34 @@ void get_sw_info(long m_handle)
 		nmc_free_sw_windows_info(info, info_cnt);
 }
 
-void tcpstream_test(long m_handle, char *Ip, int port)
+void tcpstream_test(long m_handle, char *Ip, int port, char * username, char * password, char * factoryName)
 {
 	printf("[tcpstream_test]\n");
 
 	//  1.添加一个Tcp的信号源
 	struct st_jn_equ jn_equ;
+	memset(&jn_equ,0,sizeof(jn_equ));
 	jn_equ.EquId = -1;
-	strcpy(jn_equ.FactoryName, "TcpStream");
+	strcpy(jn_equ.FactoryName, factoryName);
 	static int nOpSeq = 0;
 	char cEquName[64] = "";
-	sprintf(cEquName, "tcp-%d", ++nOpSeq);
+	sprintf(cEquName, "devt-%d", ++nOpSeq);
 	jn_equ.nOpSeq = nOpSeq;
 	strcpy(jn_equ.EquName, cEquName);
 	
 	strcpy(jn_equ.IP, Ip);
 	
 	jn_equ.Port = port;
-	strcpy(jn_equ.UserName, "admin");
-	strcpy(jn_equ.Password, "admin");
+	strcpy(jn_equ.UserName, username);
+	strcpy(jn_equ.Password, password);
 	jn_equ.ChannelNum = 1; //默认为1
 	jn_equ.InputNum = 0;   //默认为0
 	jn_equ.OutputNum = 0;  //默认为0
 	jn_equ.nOpType = 0;    //默认为0==OP_TYPE_ADD
 	jn_equ.nCtlgId = 1;    //默认为1
+
+	time_t t0 = time(0);
+	
 	int res = nmc_add_signal_source(m_handle, &jn_equ);
 	if(res)
 	{
@@ -313,21 +338,35 @@ void tcpstream_test(long m_handle, char *Ip, int port)
 		return;
 	}
 
+	time_t t1 = time(0);
+	printf("add signal cost %ld\n", t1-t0);	
+
+	sleep(1);
+
 	//  2.在窗口播放该信号源
-	res = nmc_set_window_signal_source(m_handle, 0, m_WndId, 1, jn_equ.stSubEqu[0].SubEquId);
-	if(res)
-	{
-		printf("nmc_rmv_signal_source failed!\n");
-	}	
-
-	sleep(1000);
-
-	//  3.在窗口停播该信号源
-	res = nmc_clear_window_signal_source(m_handle, 0, 0, m_WndId);
+	res = nmc_set_window_signal_source(m_handle, 0, 1, 1, jn_equ.stSubEqu[0].SubEquId);
 	if(res)
 	{
 		printf("nmc_rmv_signal_source failed!\n");
 	}
+
+	time_t t2 = time(0);
+
+	printf("nmc_set_window_signal_source cost %ld\n", t2-t1);	
+
+	sleep(1);
+
+	//  3.在窗口停播该信号源
+
+	time_t t3 = time(0);
+	res = nmc_clear_window_signal_source(m_handle, 0, 0, 1);
+	if(res)
+	{
+		printf("nmc_rmv_signal_source failed!\n");
+	}
+
+	time_t t4 = time(0);
+	printf("nmc_clear_window_signal_source cost %ld\n", t3-t4);	
 	
 	//  4.删除该信号源
 	int sub_equ_id=jn_equ.stSubEqu[0].SubEquId;
@@ -336,61 +375,423 @@ void tcpstream_test(long m_handle, char *Ip, int port)
 	{
 		printf("nmc_rmv_signal_source failed!\n");
 	}
+
+	time_t t5 = time(0);
+
+	nmc_free_add_equ_info(&jn_equ);
+	
+	printf("del signal cost %ld\n", t5-t1);	
+	
 	
 }
 
+
+void* testloop(void *arg)
+{
+	while(1)
+	{
+		nmc_init(static_NmcStatusCallback, 0);
+
+		//getchar();
+		//nmc_search_device(NULL, NULL);
+		int i = 0;
+		//while(1)
+
+		bool sw = true;
+
+		time_t t0 = time(0);
+	
+		struct login_info info;
+		memset(&info, 0, sizeof(info));
+		strcpy(info.ip, "192.168.3.32");
+		info.port = 40000;
+		strcpy(info.user, "admin");
+		strcpy(info.password, "admin");
+
+		long m_handle = nmc_login(&info);
+		if(m_handle==-1L)
+		{
+			printf("nmc_login failed!\n");
+			return (void*)-1;
+		}
+
+		printf("nmc_login ok!\n");	
+
+#if 1
+		//getchar();
+		
+		get_get_matrix(m_handle);
+
+		//getchar();
+		
+		get_output(m_handle);
+
+		//getchar();
+		
+		get_source(m_handle);
+
+		//getchar();
+		
+		get_remote_source(m_handle);
+
+		//getchar();
+		
+		get_sw_info(m_handle);
+
+		//getchar();
+		
+
+		time_t t1 = time(0);
+		
+		int res;
+		if(sw)
+		{
+			res = nmc_set_window_signal_source(m_handle, 0, 385, 1, 33718);
+		}
+		else
+		{
+			res = nmc_set_window_signal_source(m_handle, 0, 385, 1, 33719);
+		}
+		sw = !sw;
+		if(res)
+		{
+			printf("nmc_rmv_signal_source failed!\n"); 
+		}
+		time_t t2 = time(0);
+		
+		//sleep(1);
+
+		time_t t3 = time(0);
+		res = nmc_clear_window_signal_source(m_handle, 0, 1, 385);
+		if(res)
+		{
+
+		}
+		time_t t4 = time(0);
+		printf("prepare cost %ld\n", t1-t0);	
+		printf("nmc_set_window_signal_source cost %ld\n", t2-t1);	
+		printf("nmc_clear_window_signal_source cost %ld\n", t3-t4);	
+
+		res;
+		if(sw)
+		{
+			tcpstream_test(m_handle, "192.168.3.65", 37777, "admin", "admin", "DH");
+		}
+		else
+		{
+			tcpstream_test(m_handle, "192.168.3.29", 80, "admin", "admin", "ONVIF");
+		}
+
+		sw = !sw;
+
+		//添加一个TCP信号源并在窗口显示
+		//tcpstream_test(m_handle, "192.168.3.45", 15479);
+
+		printf("nmc_logout before!\n");	
+
+#endif
+		nmc_logout(m_handle);
+
+		//getchar();
+	
+		printf("nmc_uninit 111!\n");	
+
+		//nmc_uninit((void*)1);
+		nmc_uninit(NULL);
+
+		sleep(3);
+	}
+	
+}
+
+
+struct setinfo
+{
+	int nvrid;
+	int equsubid;
+	int outputid;
+	int windowid;
+};
+
+void *test_all(void* arg)
+{
+	struct setinfo* _setinfo = (struct setinfo*)arg;
+	
+	while(1)
+	{
+		
+		//sleep(4);
+		//getchar();
+		//nmc_search_device(NULL, NULL);
+		
+		nmc_init(static_NmcStatusCallback, 0);
+		int i = 0;
+		//while(1)
+
+		bool sw = true;
+
+		time_t t0 = time(0);
+	
+		struct login_info info;
+		memset(&info, 0, sizeof(info));
+		strcpy(info.ip, "192.168.3.86");
+		info.port = 40000;
+		strcpy(info.user, "admin");
+		strcpy(info.password, "admin");
+
+		printf("nmc_login ip %s, %d, %s %s\n"
+			, info.ip, info.port, info.user, info.password);	
+
+		long m_handle = nmc_login(&info);
+		if(m_handle==-1L)
+		{
+			printf("nmc_login failed!\n");
+			sleep(3);
+			continue;
+		}
+
+		printf("nmc_login ok!\n");	
+
+		//getchar();
+#if 1		
+		get_get_matrix(m_handle);
+
+		//getchar();
+		
+		get_output(m_handle);
+
+		//getchar();
+		
+		///////////get_source(m_handle);
+
+		//getchar();
+		
+		//////////////////get_remote_source(m_handle);
+
+		//getchar();
+		
+		get_sw_info(m_handle);
+
+		//getchar();
+		
+
+		time_t t1 = time(0);
+
+		//int res = nmc_set_window_signal_source(m_handle, 0, _setinfo->windowid, _setinfo->nvrid, _setinfo->equsubid);
+		//if(res)
+		//{
+		//	printf("nmc_rmv_signal_source failed!\n"); 
+		//}
+		
+		time_t t2 = time(0);
+		
+	//	sleep(5);
+
+		time_t t3 = time(0);
+/*		res = nmc_clear_window_signal_source(m_handle, 0, 1, 385);
+		if(res)
+		{
+
+		}
+*/		
+		time_t t4 = time(0);
+		///printf("prepare cost %ld\n", t1-t0);	
+	///	printf("nmc_set_window_signal_source cost %ld\n", t2-t1);	
+		///printf("nmc_clear_window_signal_source cost %ld\n", t3-t4);	
+
+/*
+		res;
+		if(sw)
+		{
+			tcpstream_test(m_handle, "192.168.3.65", 37777, "admin", "admin", "DH");
+		}
+		else
+		{
+			tcpstream_test(m_handle, "192.168.3.29", 80, "admin", "admin", "ONVIF");
+		}
+
+		sw = !sw;
+*/
+		//添加一个TCP信号源并在窗口显示
+		//tcpstream_test(m_handle, "192.168.3.45", 15479);
+
+		///printf("nmc_logout before!\n");	
+#endif
+		nmc_logout(m_handle);
+		//break;
+	
+		//getchar();
+	
+		///printf("nmc_uninit 111!\n");	
+
+		///nmc_uninit((void*)1);
+		nmc_uninit(NULL);
+
+		//break;
+		sleep(3);
+
+	}
+}
+
+
+struct setinfo _setinfo[16] = {{2,1,1,1} ,{2,4,1,2} ,{2,5,1,3} ,{2,6,1,4}
+							  ,{2,8,1,5} ,{2,9,1,6} ,{2,12,1,7} ,{2,32,1,8}
+							  ,{2,33,1,9} ,{2,38,1,10},{2,40,1,11},{2,41,1,12}
+							  ,{2,109,1,13},{2,64,1,14},{2,62,1,15},{2,63,1,16}};
+							  
 int main(int argc, char** argv)
 {
 	needshowstackbackwhencrack();
 
 	//nvr_test();
+
+	//testloop(NULL);
+#if 1	
+
+	for(int i=0; i<50; ++i)
+	{
+		printf("while(i++) %d\n", i);	
+		pthread_t tid;
+		//test_all(&_setinfo[i]);
+		create_detached_thread(&tid, test_all, &_setinfo[i]);
+	}
+
+	//getchar();
+	sleep(1000000);
+
+#if 0
+	int i=100;
+	while(i--)
+	{
+		pthread_t tid;
+		create_detached_thread(&tid, test_all, NULL);
+	}
+
+
+	
+	sleep(10000);
+#endif
+
+#endif
+
+#if 0	
+	int i=20;
+	while(i--)
+	{
 	
 	nmc_init(static_NmcStatusCallback, 0);
 
-	nmc_search_device(NULL, NULL);
+	//getchar();
+	//nmc_search_device(NULL, NULL);
+	int i = 0;
+	//while(1)
 
-	sleep(10);
+	bool sw = true;
 
-	return 0;
+
+		time_t t0 = time(0);
 	
-	struct login_info info;
-	memset(&info, 0, sizeof(info));
-	strcpy(info.ip, "192.168.3.167");
-	info.port = 40000;
-	strcpy(info.user, "admin");
-	strcpy(info.password, "admin");
+		struct login_info info;
+		memset(&info, 0, sizeof(info));
+		strcpy(info.ip, "192.168.3.86");
+		info.port = 40000;
+		strcpy(info.user, "admin");
+		strcpy(info.password, "admin");
 
-	long m_handle = nmc_login(&info);
-	if(m_handle==-1L)
-	{
-		printf("nmc_login failed!\n");
-		return -1;
+		long m_handle = nmc_login(&info);
+		if(m_handle==-1L)
+		{
+			printf("nmc_login failed!\n");
+			return -1;
+		}
+
+		printf("nmc_login ok!\n");	
+
+		//getchar();
+		
+		get_get_matrix(m_handle);
+
+		//getchar();
+		
+		get_output(m_handle);
+
+		//getchar();
+		
+		get_source(m_handle);
+
+		//getchar();
+		
+		get_remote_source(m_handle);
+
+		//getchar();
+		
+		get_sw_info(m_handle);
+
+		//getchar();
+		
+
+		time_t t1 = time(0);
+		
+		int res;
+		if(sw)
+		{
+			res = nmc_set_window_signal_source(m_handle, 0, 385, 1, 33718);
+		}
+		else
+		{
+			res = nmc_set_window_signal_source(m_handle, 0, 385, 1, 33719);
+		}
+		sw = !sw;
+		if(res)
+		{
+			printf("nmc_rmv_signal_source failed!\n"); 
+		}
+		time_t t2 = time(0);
+		
+		//sleep(1);
+
+		time_t t3 = time(0);
+		res = nmc_clear_window_signal_source(m_handle, 0, 1, 385);
+		if(res)
+		{
+
+		}
+		time_t t4 = time(0);
+		printf("prepare cost %ld\n", t1-t0);	
+		printf("nmc_set_window_signal_source cost %ld\n", t2-t1);	
+		printf("nmc_clear_window_signal_source cost %ld\n", t3-t4);	
+
+		res;
+		if(sw)
+		{
+			tcpstream_test(m_handle, "192.168.3.65", 37777, "admin", "admin", "DH");
+		}
+		else
+		{
+			tcpstream_test(m_handle, "192.168.3.29", 80, "admin", "admin", "ONVIF");
+		}
+
+		sw = !sw;
+
+		//添加一个TCP信号源并在窗口显示
+		//tcpstream_test(m_handle, "192.168.3.45", 15479);
+
+		printf("nmc_logout before!\n");	
+
+		nmc_logout(m_handle);
+		//break;
+	
+
+		//getchar();
+	
+		printf("nmc_uninit 111!\n");	
+
+		//nmc_uninit((void*)1);
+		nmc_uninit(NULL);
 	}
-
-	printf("nmc_login ok!\n");	
-
-	get_get_matrix(m_handle);
-
-	get_output(m_handle);
-
-	get_source(m_handle);
-
-	get_remote_source(m_handle);
-
-	get_sw_info(m_handle);
-
-	//添加一个TCP信号源并在窗口显示
-	//tcpstream_test(m_handle, "192.168.3.45", 15479);
-
-	printf("nmc_logout before!\n");	
-
-	nmc_logout(m_handle);	
-
-	printf("nmc_logout 222!\n");	
-
-	nmc_uninit(NULL);
-
-	printf("nmc_logout 333!\n");	
+#endif
+	
+	printf("nmc_uninit 222!\n");	
 	
 	return 0;
 }

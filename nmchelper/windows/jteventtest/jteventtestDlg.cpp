@@ -11,6 +11,10 @@
 #define new DEBUG_NEW
 #endif
 
+#include <vector>
+using namespace std;
+static vector<JtEventConnect*> ConnS;
+static vector<JtEventConnPeer*> ConnPeerS;
 
 // 用于应用程序“关于”菜单项的 CAboutDlg 对话框
 
@@ -188,6 +192,12 @@ void CjteventtestDlg::OnBnClickedButtonTestCmd()
 		EventServer->TestCmd();
 }
 
+unsigned int __stdcall Statc_StartInThread(void *arg)
+{
+	//JtEventServer *Self = (JtEventServer *)arg;
+
+	//return Self->EventLoop();
+}
 
 void CjteventtestDlg::OnBnClickedButtonTryconnect()
 {
@@ -195,11 +205,38 @@ void CjteventtestDlg::OnBnClickedButtonTryconnect()
 	{
 		EventConnect = new JtEventConnect();
 		EventConnect->SetJtEventCallbackSink(this,NULL);
-		int res = EventConnect->DoConnect("127.0.0.1", 20000, 3);
+		int res = EventConnect->DoConnect("127.0.0.1", 20100, 3, EventServer);
 
-		EventServer->AddPeer(EventConnect);
+		//EventServer->AddPeer(EventConnect);
 	}
 
+	JtEventConnect *EventConnect_ = new JtEventConnect();
+	EventConnect_->SetJtEventCallbackSink(this,NULL);
+	int res = EventConnect_->DoConnect("127.0.0.1", 20100, 4, EventServer);
+
+	//EventServer->AddPeer(EventConnect_);	
+
+	ConnS.push_back(EventConnect_);
+
+	int i=100;
+	while(i-->0)
+	{
+		EventConnect_ = new JtEventConnect();
+		EventConnect_->SetJtEventCallbackSink(this,NULL);
+		int res = EventConnect_->DoConnect("127.0.0.1", 20010, 4, EventServer);
+
+		ConnS.push_back(EventConnect_);
+	}
+	
+	/*
+	while();
+	unsigned int threadID = 0;
+	HANDLE  tid = (HANDLE)_beginthreadex(NULL, 0, Statc_StartInThread, 0, 0, &threadID);
+	if(tid)
+	{
+
+	}
+	)*/
 }
 int CjteventtestDlg::OnAccept(JtEventConnPeer *ConnedPeer_)
 {
@@ -210,9 +247,9 @@ int CjteventtestDlg::OnAccept(JtEventConnPeer *ConnedPeer_)
 		{
 			ConnedPeer = ConnedPeer_;
 			ConnedPeer->SetJtEventCallbackSink(this, NULL);
-			EventServer->AddPeer(ConnedPeer);		
+			EventServer->AddPeer(ConnedPeer);
+			ConnPeerS.push_back(ConnedPeer);
 		}
-
 	}
 	else
 	{
@@ -228,11 +265,14 @@ int CjteventtestDlg::OnRecvData(void* Cookie, unsigned char* pData, int dataLen)
 }
 int CjteventtestDlg::OnConnected(void* Cookie)
 {
+	//MessageBox(_T("OnConnected"), _T("OnConnected"), MB_OK);
+	static int ii = 0;
+	++ii;
 	return 0;
 }
 int CjteventtestDlg::OnClosed(void* Cookie)
 {
-	MessageBox(_T("OnClosed"), _T("OnClosed"), MB_OK);
+	//MessageBox(_T("OnClosed"), _T("OnClosed"), MB_OK);
 	return 0;
 }
 int CjteventtestDlg::OnReConnected(void* Cookie)
@@ -250,7 +290,7 @@ int CjteventtestDlg::OnJtEventConnPeerConnected(void* Cookie)
 }
 int CjteventtestDlg::OnJtEventConnPeerClosed(void* Cookie)
 {
-	MessageBox(_T("OnJtEventConnPeerClosed"), _T("OnJtEventConnPeerClosed"), MB_OK);
+	//MessageBox(_T("OnJtEventConnPeerClosed"), _T("OnJtEventConnPeerClosed"), MB_OK);
 	return 0;
 }
 int CjteventtestDlg::OnJtEventConnPeerReConnected(void* Cookie)
@@ -278,21 +318,39 @@ void CjteventtestDlg::OnBnClickedButtonconnectdisconnect()
 	{
 		EventConnect->DoDisconnect();
 
-		Sleep(50000);
 		delete EventConnect;
 		EventConnect = 0;
 	}
+
+	for(vector<JtEventConnect*>::iterator iter = ConnS.begin(); iter!=ConnS.end(); ++iter)
+	{
+		(*iter)->DoDisconnect();
+		delete (*iter);
+	}
+	
+	ConnS.clear();
 }
 
 void CjteventtestDlg::OnBnClickedButtonconneddisconnect()
 {
+
+/*
 	if(ConnedPeer)
 	{
 		ConnedPeer->DoDisconnect();
 		ConnedPeer = NULL;
 	}
-}
+*/
 
+	for(vector<JtEventConnPeer*>::iterator iter = ConnPeerS.begin(); iter!=ConnPeerS.end(); ++iter)
+	{
+		(*iter)->DoDisconnect();
+		delete (*iter);
+	}
+
+	ConnPeerS.clear();
+
+}
 
 void CjteventtestDlg::OnBnClickedButtonstartserver()
 {
@@ -301,9 +359,7 @@ void CjteventtestDlg::OnBnClickedButtonstartserver()
 		EventServer = new JtEventServer();
 		EventServer->Start();	
 	}
-
 }
-
 
 void CjteventtestDlg::OnBnClickedButtonstartlisten()
 {

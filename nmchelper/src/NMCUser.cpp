@@ -18,12 +18,18 @@
 #include <string>
 #include <map>
 #include <set>
+#include "jtmutex.h"
+#include "jtmutexautolock.h"
 #include "usersdk.h"
 #include "NMCDeviceType.h"
 #include "JtDevcieSearch.h"
 
 //lock to do......................
-static set<NMCDevice*>* pNMCDeviceS = NULL;
+static JtMutex *pNMCgLock=new JtMutex();
+
+//static set<NMCDevice*>* pNMCDeviceS = NULL;
+static map<NMCDevice*, tr1::shared_ptr<NMCDevice> >* pNMCDeviceS = NULL;
+
 static map<long, NMCDevice*>* pNMCUserStreamHandleS = NULL;
 
 static int inited = 0;
@@ -33,6 +39,8 @@ static void* g_userdata = NULL;
 
 int NMC_CALL_TYPE nmc_init(nmc_status_callback status_callback, void* userdata)
 {
+	JtMutexAutoLock Lock(*pNMCgLock);
+	
 	if(inited==0)
 	{
 #if (defined(WIN32) || defined(WIN64))
@@ -40,13 +48,20 @@ int NMC_CALL_TYPE nmc_init(nmc_status_callback status_callback, void* userdata)
 		WSADATA wsaData = {0};
 		WSAStartup(wVersionRequested,&wsaData);
 #endif
-		inited = 1;
-		pNMCDeviceS = new set<NMCDevice*>();
+		//pNMCgLock= new JtMutex();
+		//pNMCgLock->Init();
+
+		NMCDevice::GlobalInit();
+		
+		///pNMCDeviceS = new set<NMCDevice*>();
+		pNMCDeviceS = new map<NMCDevice*, tr1::shared_ptr<NMCDevice> >();
+		
 		pNMCUserStreamHandleS = new map<long, NMCDevice*>();
 
 		g_status_callback = status_callback;
 		g_userdata = userdata;
 
+		inited = 1;
 		return 0;
 	}
 	else
@@ -54,98 +69,196 @@ int NMC_CALL_TYPE nmc_init(nmc_status_callback status_callback, void* userdata)
 		
 	}
 
-	return -1;
+	return 0;
 }
 
 int NMC_CALL_TYPE nmc_uninit(void* data)
 {
-	g_status_callback = NULL;
-	g_userdata = NULL;
+	if(data==NULL)
+	{
+		jtprintf("[nmc_uninit]bokang\n");
+		return 1;
+	}
+
+	if(inited)
+	{
+		jtprintf("[nmc_uninit]\n");
+	
+		g_status_callback = NULL;
+		g_userdata = NULL;
+
+		{
+			JtMutexAutoLock Lock(*pNMCgLock);
+
+			for(map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->begin(); iter!=pNMCDeviceS->end(); ++iter)
+			//for(set<NMCDevice*>::iterator iter = pNMCDeviceS->begin(); iter!=pNMCDeviceS->end(); ++iter)
+			{
+				//iter to do.............
+				iter->second->Logout();
+			}
+			
+			delete pNMCDeviceS;
+			pNMCDeviceS = NULL;
+
+			delete pNMCUserStreamHandleS;
+			pNMCUserStreamHandleS = NULL;
+		}
+		
+		delete pNMCgLock;
+		pNMCgLock = NULL;
+
+		NMCDevice::GlobalUninit();
+
+#if (defined(WIN32) || defined(WIN64))
+		WSACleanup();
+#endif
+
+		inited = 0;
+	}
 
 	return 0;
 }
 
 static int NMC_CALL_TYPE g_nmc_status_callback(long handle, int type, void* data, int datalen, void* userdata)
 {
-	if(g_status_callback)
-	{
-		set<NMCDevice*>::iterator iter = pNMCDeviceS->find((NMCDevice*)userdata);
-		if(iter!= pNMCDeviceS->end())
-		{
-			g_status_callback((long)userdata, type, data, datalen, g_userdata);
-		}		
-	}
+	// lock???? 
 
+	JtMutexAutoLock Lock(*pNMCgLock);
+	//set<NMCDevice*>::iterator iter = pNMCDeviceS->find((NMCDevice*)userdata);
+	map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find((NMCDevice*)userdata);
+	if(iter!=pNMCDeviceS->end())
+	{
+		if(g_status_callback)
+			g_status_callback((long)userdata, type, data, datalen, g_userdata);
+	}
+	
 	return 0;
 }
 
 long NMC_CALL_TYPE nmc_login(struct login_info *info)
 {
+	if(!inited)
+	{
+		jtprintf("[%s]inited %d\n", __FUNCTION__, inited);
+		return (long)-1;
+	}
+
 	NMCDevice* Device = NMCDevice::CreateNMC(0);
+	Device->Init(g_nmc_status_callback, Device);	
 
-	Device->Init(g_nmc_status_callback, Device);
+	//NMCDevice* Device = NMCDevice::CreateNMC(0);
 
+	jtprintf("[%s]\n", __FUNCTION__);
 	if(Device->Login(info)==0)
 	{
-		pNMCDeviceS->insert(Device);
+		JtMutexAutoLock Lock(*pNMCgLock);
+
+		tr1::shared_ptr<NMCDevice> shDevice(Device);
+		(*pNMCDeviceS)[Device]=shDevice;
+
 		return (long)Device;
 	}
 
 	delete Device;
-
+	
 	return (long)-1;
 }
 
 int NMC_CALL_TYPE nmc_logout(long handle)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+		
+		shDevice = iter->second;
+		pNMCDeviceS->erase(iter);	
 	}
 	
-	return Device->Logout();
+	int res = shDevice->Logout();
+
+	return res;
 }
 
 int NMC_CALL_TYPE nmc_get_userdefinedata(long handle, int id, struct st_xy_user_data **ppuser_data, int *user_data_cnt)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->GetUserDefineData(id, ppuser_data, user_data_cnt);
+	return shDevice->GetUserDefineData(id, ppuser_data, user_data_cnt);
 }
 
 int NMC_CALL_TYPE nmc_set_userdefinedata(long handle, enum en_nmc_operator_type operator_type, struct st_xy_user_data *ppuser_data)
 {
-	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
-	{
-		return NMC_INVALIED_HANDLE;
-	}
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
 	
-	return Device->SetUserDefineData(operator_type, ppuser_data);
+	NMCDevice* Device = (NMCDevice*) handle;
+
+	tr1::shared_ptr<NMCDevice> shDevice;
+	{
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
+	}
+
+	return shDevice->SetUserDefineData(operator_type, ppuser_data);
 }
 
 int NMC_CALL_TYPE nmc_get_matrix(long handle, int matrixid, struct st_matrix_info **ppmatrix_info, int *matrix_info_cnt)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
-	{
-		return NMC_INVALIED_HANDLE;
-	}
 
 	std::vector<struct stMatrixInfo> MatrixInfoS;
-	int res = Device->GetMatrix(matrixid, MatrixInfoS);
-	if(res)
-		return res;
+	{
+		tr1::shared_ptr<NMCDevice> shDevice;
+		{
+			JtMutexAutoLock Lock(*pNMCgLock);
+			map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+			if(iter==pNMCDeviceS->end())
+			{
+				return NMC_INVALIED_HANDLE;
+			}
 
+			shDevice = iter->second;
+		}
+
+		int res = shDevice->GetMatrix(matrixid, MatrixInfoS);
+		if(res)
+			return res;
+	}
+	
 	*matrix_info_cnt = MatrixInfoS.size();
 	if(*matrix_info_cnt)
 	{
@@ -184,67 +297,117 @@ int NMC_CALL_TYPE nmc_get_matrix(long handle, int matrixid, struct st_matrix_inf
 
 int NMC_CALL_TYPE nmc_set_matrix(long handle, enum en_nmc_operator_type operator_type, struct st_matrix_info *matrix_info)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
-	{
 
-		return NMC_INVALIED_HANDLE;
+	tr1::shared_ptr<NMCDevice> shDevice;
+	{
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->SetMatrix(operator_type, matrix_info);
+	return shDevice->SetMatrix(operator_type, matrix_info);
 }
 
 int NMC_CALL_TYPE nmc_get_output(long handle, int outputid, struct st_output_layout **ppoutput_layout, int *output_layout_cnt)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+
+	jtprintf("1-----\n");
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->GetOutput(outputid, ppoutput_layout, output_layout_cnt);
+	jtprintf("2-----\n");
+	return shDevice->GetOutput(outputid, ppoutput_layout, output_layout_cnt);
 }
 
 int NMC_CALL_TYPE nmc_set_output(long handle, struct st_output_layout *output_layout)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->SetOutput(output_layout);
+	return shDevice->SetOutput(output_layout);
 }
 
 int NMC_CALL_TYPE nmc_set_window_signal_source(long handle, int windowtype, int windowid, int sourceid, int subsourceid)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->SetWindowSignalSource(windowtype, windowid, sourceid, subsourceid);
+	return shDevice->SetWindowSignalSource(windowtype, windowid, sourceid, subsourceid);
 }
 
 int NMC_CALL_TYPE nmc_clear_window_signal_source(long handle, int windowtype, int outputid, int windowid)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->ClearWindowSignalSource(windowtype, outputid, windowid);
+	return shDevice->ClearWindowSignalSource(windowtype, outputid, windowid);
 }
 
-
-
+/*
 struct strtspinfo_cm
 {
 	string url;
@@ -252,10 +415,9 @@ struct strtspinfo_cm
 	string user;
 	string password;
 };
+*/
 
-
-
-static std::map<std::string, struct strtspinfo_cm> rtspS_cm;
+//static std::map<std::string, struct strtspinfo_cm> rtspS_cm;
 int JT_CALL_TYPE jt_nmc_event_stream_callback(int callback_type, void* data, int len, void** user)
 {
 	return 0;
@@ -263,6 +425,7 @@ int JT_CALL_TYPE jt_nmc_event_stream_callback(int callback_type, void* data, int
 
 int NMC_CALL_TYPE nmc_get_signal_source_type(long handle, char* signaltype, int *len)
 {
+	//char *SourceType[] = 
 	*len = 0;
 	signaltype = NULL;
 	return -1;
@@ -270,38 +433,68 @@ int NMC_CALL_TYPE nmc_get_signal_source_type(long handle, char* signaltype, int 
 
 int NMC_CALL_TYPE nmc_get_signal_source(long handle, struct st_jn_equ **equ, int *equcnt)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->GetSignalSource(equ, equcnt);
+	return shDevice->GetSignalSource(equ, equcnt);
 }
 
 int NMC_CALL_TYPE nmc_get_remote_device(long handle, int id, struct st_jn_device **dev, int *devcnt)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->GetRemoteDevice(id, dev, devcnt);
+	return shDevice->GetRemoteDevice(id, dev, devcnt);
 }
 
 int NMC_CALL_TYPE nmc_add_remote_device(long handle, struct st_jn_device *dev)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->GetAddRemoteDevice(dev);
+	return shDevice->GetAddRemoteDevice(dev);
 }
 int NMC_CALL_TYPE nmc_modify_remote_device(long handle, struct st_jn_device *dev)
 {
@@ -311,50 +504,90 @@ int NMC_CALL_TYPE nmc_modify_remote_device(long handle, struct st_jn_device *dev
 }
 int NMC_CALL_TYPE nmc_remove_remote_device(long handle, int devid)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->GetRemoveRemoteDevice(devid);
+	return shDevice->GetRemoveRemoteDevice(devid);
 }
 
 
 int NMC_CALL_TYPE nmc_get_remote_signal_source(long handle, int deviceid, struct st_jn_equ **equ, int *equcnt)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->GetRemoteSignalSource(deviceid, equ, equcnt);
+	return shDevice->GetRemoteSignalSource(deviceid, equ, equcnt);
 }
 
 int NMC_CALL_TYPE nmc_add_signal_source(long handle, struct st_jn_equ *equ)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->AddSignalSource(equ);
+	return shDevice->AddSignalSource(equ);
 }
 int NMC_CALL_TYPE nmc_rmv_signal_source(long handle, int sub_equ_id)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->RemoveSignalSource(sub_equ_id);
+	return shDevice->RemoveSignalSource(sub_equ_id);
 }
 /*
 NMC_API int NMC_CALL_TYPE nmc_get_output_mapping(long handle, int mapping, struct st_output_mapping **pplarge_screen_info, int *st_output_mapping_cnt);
@@ -386,159 +619,292 @@ int NMC_CALL_TYPE nmc_set_output_mapping(long handle, int sub_equ_id)
 */
 int NMC_CALL_TYPE nmc_get_large_screen(long handle, int screenid, struct st_large_screen_info **pplarge_screen_info, int *large_screen_info_cnt)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->GetLargeScreen(screenid, pplarge_screen_info, large_screen_info_cnt);
+	return shDevice->GetLargeScreen(screenid, pplarge_screen_info, large_screen_info_cnt);
 }
 int NMC_CALL_TYPE nmc_add_large_screen(long handle, struct st_large_screen_info *plarge_screen_info)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->AddLargeScreen(plarge_screen_info);
+	return shDevice->AddLargeScreen(plarge_screen_info);
 }
 
 int NMC_CALL_TYPE nmc_rmv_large_screen(long handle, int screenid)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->RmvLargeScreen(screenid);
+	return shDevice->RmvLargeScreen(screenid);
 }
 
 int NMC_CALL_TYPE nmc_set_window_overlay_info(long handle, int isshow, int wndyype, int wndid, int overlayyype)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->SetWindowOverlayInfo(isshow, wndyype, wndid, overlayyype);
+	return shDevice->SetWindowOverlayInfo(isshow, wndyype, wndid, overlayyype);
 }
 
 int NMC_CALL_TYPE nmc_flip_window(long handle, int wndtype, int wndid)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->FlipWindow(wndtype, wndid);
+	return shDevice->FlipWindow(wndtype, wndid);
 }
 
 int NMC_CALL_TYPE nmc_fullscreen_window(long handle, int isfullscreen, int wndtype, int wndid)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
 	return Device->FullScreenWindow(isfullscreen, wndtype, wndid);
 }
 int NMC_CALL_TYPE nmc_show_screen_num(long handle, int matrixid, int type)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->ShowScreenNum(matrixid, type);
+	return shDevice->ShowScreenNum(matrixid, type);
 }
 
 int NMC_CALL_TYPE nmc_create_sw_windows(long handle, int width, int height, struct st_create_sw_window_info *pinfo, int info_cnt)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 	
-	return Device->CreateSWWindow(width, height, pinfo, info_cnt);
+	return shDevice->CreateSWWindow(width, height, pinfo, info_cnt);
 }
 
 int NMC_CALL_TYPE nmc_delete_sw_windows(long handle, int *sw_window_id_list, int sw_window_id_list_len)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 	
-	return Device->DeleteSWWindow(sw_window_id_list, sw_window_id_list_len);
+	return shDevice->DeleteSWWindow(sw_window_id_list, sw_window_id_list_len);
 }
 
 int NMC_CALL_TYPE nmc_stick_sw_windows(long handle, int sw_window_id)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 	
-	return Device->StickSWWindow(sw_window_id);
+	return shDevice->StickSWWindow(sw_window_id);
 }
 
 int NMC_CALL_TYPE nmc_get_sw_windows_info(long handle, int sw_window_id, struct st_sw_window_info** info, int *info_cnt)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 	
-	return Device->GetSWWindowInfo(sw_window_id, info, info_cnt);
+	return shDevice->GetSWWindowInfo(sw_window_id, info, info_cnt);
 }
 
 int NMC_CALL_TYPE nmc_get_survey_plan(long handle, int survey_id, struct st_xy_survey_info **ppsurvey_info, int *survey_info_cnt)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 	
-	return Device->GetSurveyPlan(survey_id, ppsurvey_info, survey_info_cnt);
+	return shDevice->GetSurveyPlan(survey_id, ppsurvey_info, survey_info_cnt);
 }
 
 int NMC_CALL_TYPE nmc_set_survey_plan(long handle, enum en_nmc_operator_type operator_type, struct st_xy_survey_info *ppsurvey_info)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 	
-	return Device->SetSurveyPlan(operator_type, ppsurvey_info);
+	return shDevice->SetSurveyPlan(operator_type, ppsurvey_info);
 }
 int NMC_CALL_TYPE nmc_ctrl_window_survey(long handle, int ctrl_type, int survey_id, int wndtype, int wndid)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+		
 	if(wndtype!=0)
 	{
 		//参数错误,目前只支持单窗口
@@ -546,27 +912,44 @@ int NMC_CALL_TYPE nmc_ctrl_window_survey(long handle, int ctrl_type, int survey_
 	}
 
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 	
-	return Device->CtrlWindowSurvey(ctrl_type, survey_id, wndtype, wndid);
+	return shDevice->CtrlWindowSurvey(ctrl_type, survey_id, wndtype, wndid);
 }
 long NMC_CALL_TYPE nmc_create_user_stream_source(long handle, void* arg)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 	
-	long streamhandle = Device->CreateUserStreamSource(arg);
+	long streamhandle = shDevice->CreateUserStreamSource(arg);
 	if(streamhandle)
 	{
-		(*pNMCUserStreamHandleS)[streamhandle] = Device;
+		(*pNMCUserStreamHandleS)[streamhandle] = shDevice.get();
 	}
 
 	return streamhandle;
@@ -580,91 +963,156 @@ long NMC_CALL_TYPE nmc_create_user_stream_source(long handle, void* arg)
 */
 int NMC_CALL_TYPE nmc_delete_user_stream_source(long streamhandle)
 {
-	map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
-	if(iter==pNMCUserStreamHandleS->end())
-	{
-		return NMC_INVALIED_HANDLE;
-	}
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
 
-	NMCDevice* Device = (NMCDevice*) iter->second;
-	set<NMCDevice*>::iterator iter2 = pNMCDeviceS->find(Device);
-	if(iter2==pNMCDeviceS->end())
+	NMCDevice* Device=NULL;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
+		if(iter==pNMCUserStreamHandleS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+		Device = (NMCDevice*) iter->second;
 	}
 	
-	int res = Device->DeleteUserStreamSource(streamhandle);
+	tr1::shared_ptr<NMCDevice> shDevice;
+	{
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
+	}
+	
+	int res = shDevice->DeleteUserStreamSource(streamhandle);
 	if(res)
 	{
 		
 	}
 
-	pNMCUserStreamHandleS->erase(streamhandle);
+	{
+		JtMutexAutoLock Lock(*pNMCgLock);
+		pNMCUserStreamHandleS->erase(streamhandle);
+	}
+
 
 	return res;
 }
 
 int NMC_CALL_TYPE nmc_set_user_stream_source_info(long streamhandle, struct st_video_stream_info *info)
 {
-	map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
-	if(iter==pNMCUserStreamHandleS->end())
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
+	NMCDevice* Device=NULL;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
+		if(iter==pNMCUserStreamHandleS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+		Device = (NMCDevice*) iter->second;
 	}
 
-	NMCDevice* Device = (NMCDevice*) iter->second;
-	set<NMCDevice*>::iterator iter2 = pNMCDeviceS->find(Device);
-	if(iter2==pNMCDeviceS->end())
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 	
-	return Device->SetUserStreamSourceInfo(streamhandle, info);
+	return shDevice->SetUserStreamSourceInfo(streamhandle, info);
 }
 int NMC_CALL_TYPE nmc_start_push_user_stream(long streamhandle)
 {
-	map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
-	if(iter==pNMCUserStreamHandleS->end())
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+
+	NMCDevice* Device=NULL;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
+		if(iter==pNMCUserStreamHandleS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+		Device = (NMCDevice*) iter->second;
+	}
+	
+	tr1::shared_ptr<NMCDevice> shDevice;
+	{
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	NMCDevice* Device = (NMCDevice*) iter->second;
-	set<NMCDevice*>::iterator iter2 = pNMCDeviceS->find(Device);
-	if(iter2==pNMCDeviceS->end())
-	{
-		return NMC_INVALIED_HANDLE;
-	}
-
-	return Device->StartPushUserStream(streamhandle);
+	return shDevice->StartPushUserStream(streamhandle);
 }
 int NMC_CALL_TYPE nmc_stop_push_user_stream(long streamhandle)
 {
-	map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
-	if(iter==pNMCUserStreamHandleS->end())
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+
+	NMCDevice* Device=NULL;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
+		if(iter==pNMCUserStreamHandleS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+		Device = (NMCDevice*) iter->second;
 	}
 
-	NMCDevice* Device = (NMCDevice*) iter->second;
-	set<NMCDevice*>::iterator iter2 = pNMCDeviceS->find(Device);
-	if(iter2==pNMCDeviceS->end())
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->StopPushUserStream(streamhandle);
+	return shDevice->StopPushUserStream(streamhandle);
 }
 int NMC_CALL_TYPE nmc_get_push_user_stream_state(long handle, long streamhandle, struct st_user_stream_state **ppuser_stream_state, int *pstatecnt)
 {
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+
 	NMCDevice* Device = (NMCDevice*) handle;
-	set<NMCDevice*>::iterator iter = pNMCDeviceS->find(Device);
-	if(iter==pNMCDeviceS->end())
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 
-	return Device->GetPushUserStreamState(streamhandle, ppuser_stream_state, pstatecnt);
+	return shDevice->GetPushUserStreamState(streamhandle, ppuser_stream_state, pstatecnt);
 }
 /*
 函数说明:设置用户推流源到窗口
@@ -676,20 +1124,33 @@ int NMC_CALL_TYPE nmc_get_push_user_stream_state(long handle, long streamhandle,
 */
 int NMC_CALL_TYPE nmc_set_user_stream_source_to_window(long streamhandle, int windowtype, int windowid)
 {
-	map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
-	if(iter==pNMCUserStreamHandleS->end())
-	{
-		return NMC_INVALIED_HANDLE;
-	}
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
 
-	NMCDevice* Device = (NMCDevice*) iter->second;
-	set<NMCDevice*>::iterator iter2 = pNMCDeviceS->find(Device);
-	if(iter2==pNMCDeviceS->end())
+	NMCDevice* Device=NULL;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
+		if(iter==pNMCUserStreamHandleS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+		Device = (NMCDevice*) iter->second;
 	}
 	
-	return Device->SetUserStreamSourceToWindow(streamhandle, windowtype, windowid);
+	tr1::shared_ptr<NMCDevice> shDevice;
+	{
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
+	}
+	
+	return shDevice->SetUserStreamSourceToWindow(streamhandle, windowtype, windowid);
 }
 
 /*
@@ -702,20 +1163,33 @@ int NMC_CALL_TYPE nmc_set_user_stream_source_to_window(long streamhandle, int wi
 */
 int NMC_CALL_TYPE nmc_clear_user_stream_source_from_window(long streamhandle, int windowtype, int windowid)
 {
-	map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
-	if(iter==pNMCUserStreamHandleS->end())
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+
+	NMCDevice* Device=NULL;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
+		if(iter==pNMCUserStreamHandleS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+		Device = (NMCDevice*) iter->second;
 	}
 
-	NMCDevice* Device = (NMCDevice*) iter->second;
-	set<NMCDevice*>::iterator iter2 = pNMCDeviceS->find(Device);
-	if(iter2==pNMCDeviceS->end())
+	tr1::shared_ptr<NMCDevice> shDevice;
 	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
 	}
 	
-	return Device->ClearUserStreamSourceFromWindow(streamhandle, windowtype, windowid);
+	return shDevice->ClearUserStreamSourceFromWindow(streamhandle, windowtype, windowid);
 }
 /*
 函数说明:推送一帧视频流数据,阻塞发送
@@ -728,20 +1202,33 @@ int NMC_CALL_TYPE nmc_clear_user_stream_source_from_window(long streamhandle, in
 */
 int NMC_CALL_TYPE nmc_push_user_stream_video_data(long streamhandle, struct st_video_stream_info *info, char* pstreamdata, int streamdatalen)
 {
-	map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
-	if(iter==pNMCUserStreamHandleS->end())
+	if(!inited)
+		return NMC_ERROR_NOT_INIT_FAILED;
+	
+	NMCDevice* Device=NULL;
 	{
-		return NMC_INVALIED_HANDLE;
-	}
-
-	NMCDevice* Device = (NMCDevice*) iter->second;
-	set<NMCDevice*>::iterator iter2 = pNMCDeviceS->find(Device);
-	if(iter2==pNMCDeviceS->end())
-	{
-		return NMC_INVALIED_HANDLE;
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<long, NMCDevice*>::iterator iter = pNMCUserStreamHandleS->find(streamhandle);
+		if(iter==pNMCUserStreamHandleS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+		Device = (NMCDevice*) iter->second;
 	}
 	
-	return Device->PushUserStreamVideo(streamhandle, info, pstreamdata, streamdatalen);
+	tr1::shared_ptr<NMCDevice> shDevice;
+	{
+		JtMutexAutoLock Lock(*pNMCgLock);
+		map<NMCDevice*, tr1::shared_ptr<NMCDevice> >::iterator iter = pNMCDeviceS->find(Device);
+		if(iter==pNMCDeviceS->end())
+		{
+			return NMC_INVALIED_HANDLE;
+		}
+
+		shDevice = iter->second;
+	}
+	
+	return shDevice->PushUserStreamVideo(streamhandle, info, pstreamdata, streamdatalen);
 }
 
 /*int NMC_CALL_TYPE nmc_set_window_rtsp_signal_source(long handle, int windowtype, int outputid, int windowid, char* url, int port, char *user, char* password, int *sourceid)
@@ -873,9 +1360,42 @@ int NMC_CALL_TYPE nmc_clear_window_rtsp_signal_source(long handle, int windowtyp
 int NMC_CALL_TYPE nmc_search_device(struct st_xy_device_info **device_info, int *len)
 {
 	tr1::shared_ptr<CJtDevcieSearch> Search(new CJtDevcieSearch());
+	
+	///long use_count = Search.use_count();
+
 	Search->Init(Search, g_status_callback, g_userdata);
+
+	//use_count = Search.use_count();
+
 	Search->Search();
 
+	//use_count = Search.use_count();
+	return 0;
+}
+
+int NMC_CALL_TYPE nmc_change_device_net(struct st_xy_device_info *old_device_info, struct st_xy_device_info *new_device_info)
+{
+	if(strcmp(old_device_info->ipv4,new_device_info->ipv4)
+	 ||strcmp(old_device_info->gateway,new_device_info->gateway)
+	 ||strcmp(old_device_info->mask,new_device_info->mask)
+	 ||strcmp(old_device_info->iface,new_device_info->iface))
+	{
+		tr1::shared_ptr<CJtDevcieSearch> Search(new CJtDevcieSearch());
+		Search->Init(Search, g_status_callback, g_userdata);
+		return Search->ChangeDeviceNet(old_device_info, new_device_info);
+	}
+
+	return 0;
+}
+int NMC_CALL_TYPE nmc_shutdown_device(struct st_xy_device_info *device_info, int type)
+{
+	if(type!=NMC_HALT && type!=NMC_REBOOT)
+		return -1;
+
+	tr1::shared_ptr<CJtDevcieSearch> Search(new CJtDevcieSearch());
+	Search->Init(Search, g_status_callback, g_userdata);
+	return Search->ShutdownDevice(device_info, type);
+	
 	return 0;
 }
 
@@ -933,21 +1453,61 @@ int NMC_CALL_TYPE nmc_free_output_info(struct st_output_layout *poutput_layout, 
 }
 int NMC_CALL_TYPE nmc_free_equ_info(struct st_jn_equ *equ, int equcnt)
 {
+#if (defined(WIN32) || defined(WIN64))
+	
 	//equ的指针是在jn模块里返回的，按理在windows下应在jn模块里释放!!!!! 以后再改 to do.........
 	for(int i=0; i<equcnt; ++i)
 	{
 		struct st_jn_equ *p = equ+i;
 		if(p->stSubEqu)
 		{
-			///free(p->stSubEqu); //以后再改
+			free(p->stSubEqu); //以后再改
 			p->stSubEqu = NULL;
 		}
 	}
 
 	//free(equ); //以后再改
 
+#else
+	//linux下可以释放
+	for(int i=0; i<equcnt; ++i)
+	{
+		struct st_jn_equ *p = equ+i;
+		if(p->stSubEqu)
+		{
+			free(p->stSubEqu); //以后再改
+			p->stSubEqu = NULL;
+		}
+	}
+
+	free(equ); //以后再改
+#endif
+
 	return 0;
 }
+
+int NMC_CALL_TYPE nmc_free_add_equ_info(struct st_jn_equ *equ)
+{
+#if (defined(WIN32) || defined(WIN64))
+	if(equ->stSubEqu)
+	{
+		free(equ->stSubEqu); //以后再改
+		equ->stSubEqu = NULL;
+	}
+
+#else
+	//linux下可以释放
+	if(equ->stSubEqu)
+	{
+		free(equ->stSubEqu); //以后再改
+		equ->stSubEqu = NULL;
+	}
+
+#endif
+
+	return 0;
+}
+
 
 int NMC_CALL_TYPE nmc_free_large_screen_info(struct st_large_screen_info *plarge_screen_info, int large_screen_info_cnt)
 {

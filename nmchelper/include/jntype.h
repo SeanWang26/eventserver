@@ -46,24 +46,30 @@ struct st_jn_equ
 	int                stSubEquCnt;
 };
 
-struct stOpCmd
+/*struct stOpCmd
 {
 	int		nOpSeq;
 	int		nOpType;
 	int		nOpResult;
 
-	union u
+	union
 	{
 		struct st_sub_equ;
 		struct st_jn_equ;
 	};
-};
+};*/
 
 
 
 
 
 
+
+//释放内存
+#define FREE_MEMORY_JN_ADD_EQU                   3001    //jn类型的内存释放
+#define FREE_MEMORY_JN_GET_EQU_INFO              3002    //jn类型的内存释放
+#define FREE_MEMORY_JN_GET_SUB_EQU_INFO          3003    //jn类型的内存释放
+#define FREE_MEMORY_JN_GET_ENCODE_CONFIG         3004    //jn类型的内存释放
 
 
 

@@ -46,7 +46,7 @@ private:
 	JtPairPipeEventCallbackSink *m_Sink;
 public:
 	JtEventPairPipe();
-	~JtEventPairPipe(void);
+	virtual ~JtEventPairPipe(void);
 
 	//virtual int OnAddToServer(JtEventServer *EventServer);
 	//virtual int OnRemoveFromServer();

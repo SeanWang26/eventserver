@@ -26,6 +26,8 @@ typedef int (JT_CALL_TYPE *jt_set_event_callback_dl)(jt_stream_callback callback
 typedef void* (JT_CALL_TYPE *jt_create_device_dl)(unsigned int type);
 typedef int (JT_CALL_TYPE *jt_distory_device_dl)(void* handle);
 
+typedef int (JT_CALL_TYPE *jt_free_dl)(unsigned int devtype, int freetype, void* ptr, int size);    //释放内存
+
 typedef int (JT_CALL_TYPE *jt_login_dl)(void* handle, struct stLogin_Req *req, struct stLogin_Rsp *rsp);
 typedef int (JT_CALL_TYPE *jt_login_ex_dl)(void* handle, int type, struct stLogin_Req *req, struct stLogin_Rsp *rsp);//创建一个新的设备，并登陆
 typedef int (JT_CALL_TYPE *jt_logout_dl)(void* handle, struct stLogout_Req *req, struct stLogout_Rsp *rsp);
@@ -88,6 +90,11 @@ JT_FRONT_API int JT_CALL_TYPE jt_set_guard(void* handle, struct stSetGuard_Req *
 JT_FRONT_API int JT_CALL_TYPE jt_get_guard(void* handle, struct stGetGuard_Req *req, struct stGetGuard_Rsp *rsp);//获取布防
 JT_FRONT_API int JT_CALL_TYPE jt_reboot_control(void* handle, struct stReboot_Req *req, struct stReboot_Rsp *rsp);//重启，关机
 JT_FRONT_API int JT_CALL_TYPE jt_set_output(struct device *, struct stSetOutput_Req *req, struct stSetOutput_Rsp *rsp);//输出控制
+
+
+JT_FRONT_API int JT_CALL_TYPE jt_free(unsigned int devtype, int freetype, void* ptr, int size);    //释放内存
+
+
 
 
 #ifdef __cplusplus

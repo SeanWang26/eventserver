@@ -15,7 +15,9 @@ public:
 	~NMCDevice(void);
 
 	static NMCDevice* CreateNMC(int Type);
-
+	static int GlobalInit();
+	static int GlobalUninit();
+	
 	int Init(nmc_status_callback status_callback, void* userdata);
 	int Uninit(void* data);
 

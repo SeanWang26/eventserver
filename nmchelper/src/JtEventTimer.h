@@ -24,6 +24,12 @@
 #include "JtEventType.h"
 #include "JtEventServer.h"
 
+class  JtTimerEventCallbackSink
+{
+public:
+	virtual int OnTime(void* Cookie)=0;
+};
+
 class JtEventTimer : public JtEventPeer
 {
 private:

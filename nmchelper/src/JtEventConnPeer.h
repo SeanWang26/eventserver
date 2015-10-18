@@ -27,6 +27,11 @@ using namespace std;
 #include "JtEventServer.h"
 #include "FramePkg.h"
 
+enum
+{
+	JTEVENTCONNPEER_DISCONNECT = 1,//¶Ï¿ª
+};
+
 class  JtEventConnPeerCallbackSink
 {
 public:
@@ -62,6 +67,8 @@ private:
 	static void Static_ReadCallback(struct bufferevent *bev, void *ptr);
 	void ReadCallback(struct bufferevent *bev);
 
+	int DoDisconnectInner(int cmd, int seq);
+
 public:
 	virtual int OnAddToServer(JtEventServer *m_Server);
 	virtual int OnRemoveFromServer();
@@ -70,7 +77,7 @@ public:
 	JtEventConnPeer(evutil_socket_t fd, struct sockaddr *address, int socklen);
 	~JtEventConnPeer();
 
-	int DoConnect(string Ip, uint16_t Port, int TimeOut);
+	//int DoConnect(string Ip, uint16_t Port, int TimeOut);
 	int DoDisconnect();
 	
 	int SendData(const char* pData,int dataLen);

@@ -20,6 +20,7 @@
 #endif
 
 #include <time.h>
+#include "jtmutex.h"
 #include "CachedAffair.h"
 #include "NmcErrorCode.h"
 #include "NMCDeviceImpl.h"
@@ -28,6 +29,7 @@
 #include "jtprintf.h"
 
 #include "usersdk.h"
+#include "jtmutexautolock.h"
 
 #if (defined(WIN32) || defined(WIN64))
 static HINSTANCE frontplug_dl = NULL;
@@ -35,9 +37,18 @@ static HINSTANCE frontplug_dl = NULL;
 static void* frontplug_dl = NULL;
 #endif
 
+JtEventServer*  g_JtEventServer = NULL;
+
 #define FRONT_DLSYM(dl,funcname) do{ _##funcname##_dl = (funcname##_dl)GetProcAddress(dl, ""#funcname); if(_##funcname##_dl==NULL) { return-1; } }while(0)
 
+JtMutex *nvrhandlelock = NULL;
+static void* nvrhandle = 0;
+
 static jt_init_dl                            _jt_init_dl = 0;
+static jt_uninit_dl                          _jt_uninit_dl = 0;
+static jt_free_dl							 _jt_free_dl = 0;
+
+
 static jt_create_device_dl                   _jt_create_device_dl = 0;
 static jt_distory_device_dl                  _jt_distory_device_dl = 0;
 static jt_login_dl                           _jt_login_dl = 0;
@@ -46,6 +57,7 @@ static jt_logout_dl                          _jt_logout_dl = 0;
 static jt_logout_ex_dl                       _jt_logout_ex_dl = 0;//退出登陆，删除设备
 static jt_get_config_dl                      _jt_get_config_dl = 0;
 static jt_set_config_dl                      _jt_set_config_dl = 0;
+
 /*
 static jt_open_video_stream_dl               _jt_open_video_stream_dl = 0;
 static jt_close_video_stream_dl              _jt_close_video_stream_dl = 0;
@@ -62,12 +74,8 @@ static jt_send_talk_data_dl                  _jt_send_talk_data_dl = 0;
 
 NMCDeviceImpl::NMCDeviceImpl(void)
 {
-	GlobalInit();
-
 	m_pstatus_callback = NULL;
 	m_puserdata = NULL;
-
-	nvrhandle = NULL;
 
 	m_Logined = 0;
 
@@ -81,6 +89,8 @@ NMCDeviceImpl::NMCDeviceImpl(void)
 	m_CheckFrq = 1;
 
 	m_Conn = new JtEventConnect();
+
+
 }
 NMCDeviceImpl::~NMCDeviceImpl(void)
 {
@@ -92,21 +102,35 @@ NMCDeviceImpl::~NMCDeviceImpl(void)
 		Logout();
 	}
 
-	delete m_Conn;
+	if(m_Conn)
+	{
+		//jtprintf("[NMCDeviceImpl::~NMCDeviceImpl]delete m_Conn before\n", __FUNCTION__);
+		delete m_Conn;
+		//jtprintf("[NMCDeviceImpl::~NMCDeviceImpl]delete m_Conn after\n", __FUNCTION__);
+	}
+
 }
 
+static int gGlobalInit = 0;
 int NMCDeviceImpl::GlobalInit()
 {
-	static int gGlobalInit = 0;
-	if(frontplug_dl==NULL && gGlobalInit==0)													
+
+	if(gGlobalInit==0)													
 	{
+		//jtprintf("[NMCDeviceImpl::GlobalInit]\n", __FUNCTION__);
+		
 		gGlobalInit = 1;
 		
+		if(g_JtEventServer==NULL)
+		{
+			g_JtEventServer = new JtEventServer();
+			g_JtEventServer->Start();
+		}
 #if (defined(WIN32) || defined(WIN64))
 		TCHAR szPath[MAX_PATH];                                             
 		if( !GetModuleFileName(NULL, szPath, MAX_PATH ) )              
 		{                                                              
-			printf("GetModuleFileName failed (%d)\n", GetLastError());              
+			jtprintf("GetModuleFileName failed (%d)\n", GetLastError());              
 			return FALSE;                                                             
 		}                                                                           
 		TCHAR *cp = _tcsrchr(szPath, _T('\\'));
@@ -114,13 +138,16 @@ int NMCDeviceImpl::GlobalInit()
 			*(cp+1) = _T('\0');
 
 		_tcscat(szPath, _T("frontplug.dll"));
-		frontplug_dl = LoadLibrary(szPath);                   
+		frontplug_dl = LoadLibrary(szPath);            
 		if(frontplug_dl==NULL) 											    
 		{													    
 			jtprintf("LoadLibrary() frontplug failed, %u\n", GetLastError());                                             
 		}
 
 		_jt_init_dl = (jt_init_dl)GetProcAddress(frontplug_dl, "_jt_init@4");
+		_jt_uninit_dl = (jt_uninit_dl)GetProcAddress(frontplug_dl, "_jt_uninit@4");
+		_jt_free_dl = (jt_free_dl)GetProcAddress(frontplug_dl, "_jt_free@16");
+
 		_jt_create_device_dl = (jt_create_device_dl)GetProcAddress(frontplug_dl, "_jt_create_device@4");
 		_jt_distory_device_dl = (jt_distory_device_dl)GetProcAddress(frontplug_dl, "_jt_distory_device@4");
 	
@@ -133,13 +160,16 @@ int NMCDeviceImpl::GlobalInit()
 		_jt_get_config_dl = (jt_get_config_dl)GetProcAddress(frontplug_dl, "_jt_get_config@12");
 		_jt_set_config_dl = (jt_set_config_dl)GetProcAddress(frontplug_dl, "_jt_set_config@12");
 #else
-		frontplug_dl = dlopen("./libjfront.so", RTLD_NOW|RTLD_GLOBAL|RTLD_DEEPBIND);
+		frontplug_dl = dlopen("./libjfront.so", RTLD_NOW|RTLD_GLOBAL|RTLD_DEEPBIND);//
 		if(frontplug_dl==NULL)
 		{
-			//jtprintf("[%s]dlopen ./libjfront.so failed\n", __FUNCTION__);
+			jtprintf("[%s]open libjfront.so failed\n", __FUNCTION__);
 		}
 
 		_jt_init_dl = (jt_init_dl)dlsym(frontplug_dl, "jt_init");
+		_jt_uninit_dl = (jt_uninit_dl)dlsym(frontplug_dl, "jt_uninit");
+		_jt_free_dl = (jt_free_dl)dlsym(frontplug_dl, "jt_free");
+
 		_jt_create_device_dl = (jt_create_device_dl)dlsym(frontplug_dl, "jt_create_device");
 		_jt_distory_device_dl = (jt_distory_device_dl)dlsym(frontplug_dl, "jt_distory_device");
 
@@ -155,11 +185,76 @@ int NMCDeviceImpl::GlobalInit()
 #endif		
 		if(_jt_init_dl)
 			_jt_init_dl(NULL);
+
+
+		nvrhandlelock = new JtMutex();
+		///nvrhandlelock->Init();
+		if(_jt_create_device_dl)
+			nvrhandle = _jt_create_device_dl(DEVICE_JN);
 	}
 
 	return 0;
 }
 
+int NMCDeviceImpl::GlobalUninit()
+{
+	if(gGlobalInit)
+	{
+		gGlobalInit = 0;
+
+		jtprintf("[%s]_jt_distory_device_dl %p, nvrhandle %p\n"
+			, __FUNCTION__, _jt_distory_device_dl, nvrhandle);
+		
+		if(_jt_distory_device_dl && nvrhandle)
+		{
+			jtprintf("[%s]22222222222222, _jt_distory_device_dl %p, nvrhandle %p\n"
+			, __FUNCTION__, _jt_distory_device_dl, nvrhandle);
+			_jt_distory_device_dl(nvrhandle);
+			
+			nvrhandle = NULL;
+			delete nvrhandlelock;
+			nvrhandlelock = NULL;
+		}
+
+		if(_jt_uninit_dl)
+			_jt_uninit_dl(NULL);
+
+	if(frontplug_dl)
+#if (defined(WIN32) || defined(WIN64))
+		FreeLibrary(frontplug_dl);
+#else
+		dlclose(frontplug_dl);
+#endif
+
+		_jt_init_dl = NULL;
+		_jt_uninit_dl = NULL;
+		_jt_free_dl = NULL;
+
+		_jt_create_device_dl = NULL;
+		_jt_distory_device_dl = NULL;
+
+		_jt_login_dl = NULL;
+		_jt_logout_dl = NULL;
+
+		_jt_login_ex_dl = NULL;
+		_jt_logout_ex_dl = NULL;
+
+		_jt_get_config_dl = NULL;
+		_jt_set_config_dl = NULL;
+
+		if(g_JtEventServer)
+		{
+			delete g_JtEventServer;
+			g_JtEventServer = NULL;
+		}
+
+		//return JtEventServer::GetInstance()->Stop();
+		//////////////////////////////////////return JtEventServer::FreeInstance();
+		return 0;
+	}
+	
+	return 0;
+}
 int NMCDeviceImpl::OnRecvData(void* Cookie, unsigned char* pData, int dataLen)
 {
 	if(Cookie==m_Conn)
@@ -220,20 +315,40 @@ int NMCDeviceImpl::OnReConnected(void* Cookie)
 }
 int NMCDeviceImpl::DoRequest(JtEventConnect* Conn, const char* pData,int dataLen, struct ST_AFFAIR_CALLBACK* pAffairCallBack, int Seq, int Cmd)
 {
-	int res = Conn->SendData(pData, dataLen);
-	if(res)
+	if(pAffairCallBack==NULL)
 	{
-		return NMC_RECEIVE_REQ_FAILED;
-	}
-
-	if(pAffairCallBack)
-	{
-		res = CCachedAffairMap::Static_PushNewAffair(m_cachedAffairMap, m_lockCachedAffair, pAffairCallBack
-			,Seq,Cmd, Cmd+1);
-
-		if(res<0)
+		int res = Conn->SendData(pData, dataLen);
+		if(res)
 		{
-			return NMC_ERROR_PUSHNEWAFFAIR;
+			return NMC_RECEIVE_REQ_FAILED;
+		}
+	}
+	else
+	{
+		//1.先添加把异步Affair的同步成员初始完毕
+		tr1::shared_ptr<CCachedAffair> pCachedAffairItem(new CCachedAffair(pAffairCallBack));
+		unsigned long long AffairId = CCachedAffairMap::Static_PushNewAffair_Pre(m_cachedAffairMap, m_lockCachedAffair
+			, pCachedAffairItem, Seq, Cmd, Cmd+1);
+
+		int res = Conn->SendData(pData, dataLen);
+		if(res)
+		{
+			jtprintf("[%s]SendData %d\n", __FUNCTION__, res);
+			CCachedAffairMap::Static_CancelAffair_Pre(m_cachedAffairMap, m_lockCachedAffair, AffairId);
+			return NMC_RECEIVE_REQ_FAILED;
+		}
+
+		if(pAffairCallBack->m_pOnGotData==NULL)
+		{
+			//只有是同步的才等待
+			res = CCachedAffairMap::Static_PushNewAffair(m_cachedAffairMap, m_lockCachedAffair, pCachedAffairItem, AffairId);
+			if(res<0)
+			{
+				jtprintf("[%s]res %d\n", __FUNCTION__, res);
+				return NMC_ERROR_PUSHNEWAFFAIR;
+			}
+
+			pAffairCallBack->m_pRecvData = pCachedAffairItem->m_pRecvDataBuf;
 		}
 	}
 
@@ -297,13 +412,43 @@ int NMCDeviceImpl::OnGotHeartBeatOverTime()
 
 	return 0;
 }
+int NMCDeviceImpl::static_OnGetClearWindowSignalSourceRsp(long cookie, unsigned char* pData, int dataLen)
+{
+	return 0;
+}
+int NMCDeviceImpl::OnGetClearWindowSignalSourceRsp(unsigned char* pData, int dataLen)
+{
+	return 0;
+}
+int NMCDeviceImpl::static_OnGotClearWindowSignalSourceOverTime(long cookie)
+{
+	return 0;
+}
+int NMCDeviceImpl::OnGotClearWindowSignalSourceOverTime()
+{
+	return 0;
+}
+int NMCDeviceImpl::static_OnGetSetWindowSignalSourceRsp(long cookie, unsigned char* pData, int dataLen)
+{
+	return 0;
+}
+int NMCDeviceImpl::OnGetSetWindowSignalSourceRsp(unsigned char* pData, int dataLen)
+{
+	return 0;
+}
+
+int NMCDeviceImpl::static_OnGotSetWindowSignalSourceOverTime(long cookie)
+{
+	return 0;
+}
+int NMCDeviceImpl::OnGotSetWindowSignalSourceOverTime()
+{
+	return 0;
+}
 int NMCDeviceImpl::Init(nmc_status_callback status_callback, void* userdata)
 {
 	m_pstatus_callback = status_callback;
 	m_puserdata = userdata;
-
-	if(_jt_init_dl)
-		nvrhandle = _jt_create_device_dl(DEVICE_JN);
 
 	return 0;
 }
@@ -387,22 +532,29 @@ void* NMCDeviceImpl::HeartBeatThread()
 
 long NMCDeviceImpl::Login(struct login_info *info)
 {
+	jtprintf("[NMCDeviceImpl::Login]\n", __FUNCTION__);
+	
 	m_LoginInfo = *info;
 
 	m_Conn->SetJtEventCallbackSink(this, this);
-	int res = m_Conn->DoConnect(info->ip, info->port, 5000);
+
+	int res = m_Conn->DoConnect(info->ip, info->port, 5000, g_JtEventServer);
 	if(res)
 	{
+		jtprintf("[%s]DoConnect failed %d\n", __FUNCTION__, res);
 		return NMC_CONNECT_FAILED;
 	}
- 
+#if 1
 	NmcMessage NmcMsg;
 	string ReqMsg;
 	char cCookie[65] = {0};
 	sprintf(cCookie, "%ld", (long)this);
+	
 	int Seq = NmcMsg.BuildLoginReqMsg(info->user, info->password, cCookie, 1, ReqMsg);
+	
 	if(Seq==-1)
 	{
+		jtprintf("[NMCDeviceImpl::Login]1\n", __FUNCTION__);
 		m_Conn->DoDisconnect();
 		return NMC_GEN_REQ_FAILED;
 	}
@@ -411,6 +563,7 @@ long NMCDeviceImpl::Login(struct login_info *info)
 	res = DoRequest(m_Conn, ReqMsg.data(), ReqMsg.size()+1, &AffairCallBack, Seq, EX_NMC_LOGIN_REQ);
 	if(res)
 	{
+		jtprintf("[NMCDeviceImpl::Login]2 %d\n", res);
 		m_Conn->DoDisconnect();
 		return NMC_SEND_REQ_FAILED;
 	}
@@ -423,12 +576,14 @@ long NMCDeviceImpl::Login(struct login_info *info)
 	std::string strRemark;
 	if(NmcMsg.ParserLoginRspMsg(RspMsg, strCache, nRetCode, strRemark))
 	{
+		jtprintf("[NMCDeviceImpl::Login]3\n", __FUNCTION__);
 		m_Conn->DoDisconnect();
 		return NMC_PASER_RSP_FAILED;
 	}
 
 	if(nRetCode)
 	{
+		jtprintf("[NMCDeviceImpl::Login]4\n", __FUNCTION__);
 		m_Conn->DoDisconnect();
 		return nRetCode;
 	}
@@ -446,50 +601,21 @@ long NMCDeviceImpl::Login(struct login_info *info)
 		if(0 != pthread_create(&m_nHeartBeatThreadId, NULL, Static_HeartBeatThread, (void *)this))
 		{
 			sem_destroy(&m_hHeartBeatThreadEventHandle);
+			jtprintf("[NMCDeviceImpl::Login]5\n", __FUNCTION__);
 			return -1;
 		}
 	}
 #endif
+#endif
+	m_Logined = 1;
+
 	return 0;
 }
 int  NMCDeviceImpl::Logout()
 {
-	/*NmcMessage NmcMsg;
-	string ReqMsg;
-	char cCookie[65] = {0};
-	sprintf(cCookie, "%ld", (long)this);
-	int Seq = NmcMsg.BuildLogoutReqMsg(0, cCookie, ReqMsg);
-	if(Seq==-1)
-	{
-		return NMC_GEN_REQ_FAILED;
-	}
-
-	ST_AFFAIR_CALLBACK AffairCallBack((DWORD_PTR)this);
-	int res = DoRequest(ReqMsg.data(), ReqMsg.size()+1, &AffairCallBack, Seq);
-	if(res)
-	{
-		return NMC_SEND_REQ_FAILED;
-	}
-
-	string RspMsg;
-	RspMsg.assign((const char*)AffairCallBack.m_pRecvData, AffairCallBack.m_pRecvSize);
-
-	std::string strCache;
-	int nRetCode=-1;
-	std::string strRemark;
-	if(NmcMsg.ParserLogoutRspMsg(RspMsg, strCache, nRetCode, strRemark))
-	{
-		return NMC_PASER_RSP_FAILED;
-	}
-
-	if(nRetCode)
-	{
-		return nRetCode;
-	}
-	*/
-
 	m_Logined = 0;
 
+#if 1
 #if (defined(WIN32) || defined(WIN64))
 	if(m_hHeartBeatThreadEventHandle)
 		SetEvent(m_hHeartBeatThreadEventHandle);
@@ -517,19 +643,23 @@ int  NMCDeviceImpl::Logout()
 		sem_destroy(&m_hHeartBeatThreadEventHandle);
 	}
 #endif
+#endif
 
-	m_Conn->DoDisconnect();//StopConnect();
+	if(m_Conn)
+	{
+		m_Conn->DoDisconnect();
+		delete m_Conn;
+		m_Conn = NULL;
+	}
 
 	struct stLogout_Req reqout;
 	struct stLogout_Rsp rspout;
 	if(_jt_logout_dl)
 		_jt_logout_dl(nvrhandle, &reqout, &rspout);
 
-	if(_jt_distory_device_dl)
-		_jt_distory_device_dl(nvrhandle);
+	//if(_jt_distory_device_dl)
+	//	_jt_distory_device_dl(nvrhandle);
 	
-	nvrhandle = NULL;
-
 	return 0;
 }
 int NMCDeviceImpl::GetUserDefineData(int id, struct st_xy_user_data **ppuser_data, int *user_data_cnt)
@@ -625,7 +755,7 @@ int NMCDeviceImpl::HeartBeat()
 		return NMC_GEN_REQ_FAILED;
 	}
 
-	ST_AFFAIR_CALLBACK AffairCallBack((long)this, static_OnGotHeartBeatData, static_OnGotHeartBeatOverTime);
+	ST_AFFAIR_CALLBACK AffairCallBack((long)this, static_OnGotHeartBeatData, static_OnGotHeartBeatOverTime, 6000);
 	int res = DoRequest(m_Conn, ReqMsg.data(), ReqMsg.size()+1, &AffairCallBack, Seq, EX_HEART_BEAT_REQ);
 	if(res)
 	{
@@ -661,20 +791,27 @@ int NMCDeviceImpl::GetSignalSourceInner(struct login_info *loginfo, struct st_jn
 
 	//登陆
 	if(_jt_login_dl==NULL || _jt_set_config_dl==NULL || _jt_logout_ex_dl==NULL)
+	if(res)
+	{
+		jtprintf("[GetSignalSourceInner]_jt_login_dl %p, _jt_set_config_dl %p, _jt_set_config_dl %p\n"
+			, _jt_login_dl, _jt_set_config_dl, _jt_logout_ex_dl); 
 		return NMC_INVALIED_HANDLE;
+	}
 
+	JtMutexAutoLock Lock(*nvrhandlelock);
 	struct stLogin_Rsp rsp;
 	res = _jt_login_dl(nvrhandle, &req, &rsp);
 	if(res)
 	{
-		return NMC_INVALIED_HANDLE;
+		jtprintf("[GetSignalSourceInner]_jt_login_dl res %d\n", res); 
+		return res;
 	}
 
 	//获取本机nvr上的所有主设备
 	struct stGetConfig_Req rreq;
 	struct stGetConfig_Rsp rrsp;
 
-	rreq. Channel = -1;
+	rreq.Channel = -1;
 	rreq.Codec = 0;
 	rreq.Type = GET_EQU_INFO;
 	rrsp.Config = NULL;
@@ -691,11 +828,17 @@ int NMCDeviceImpl::GetSignalSourceInner(struct login_info *loginfo, struct st_jn
 		return NMC_ERROR_PARAMETER;
 	}
 
-	*equ = (struct st_jn_equ *)rrsp.Config;
+	*equ = (struct st_jn_equ *)calloc(rrsp.Size, sizeof(struct st_jn_equ));
 	*equcnt = rrsp.Size;
+	memcpy(*equ, rrsp.Config, *equcnt*sizeof(struct st_jn_equ));
+	
+	_jt_free_dl(DEVICE_JN, FREE_MEMORY_JN_GET_EQU_INFO, rrsp.Config, rrsp.Size);
 
+	//*equ = (struct st_jn_equ *)rrsp.Config;
+	//*equcnt = rrsp.Size;
+	
 	//获取本机nvr上的所有子设备
-	zreq. Channel = -1;
+	zreq.Channel = -1;
 	zreq.Codec = 0;
 	zreq.Type = GET_SUB_EQU_INFO;
 	
@@ -731,14 +874,22 @@ int NMCDeviceImpl::GetSignalSourceInner(struct login_info *loginfo, struct st_jn
 		(*equ)[i].stSubEquCnt = x;
 	}
 
-	//free(subequ);
+	_jt_free_dl(DEVICE_JN, FREE_MEMORY_JN_GET_SUB_EQU_INFO, subequ, subequcnt);
+	subequ = NULL;
+	/*
+#if (defined(WIN32) || defined(WIN64))
+
+#else
+	free(subequ);
+	subequ = NULL;
+#endif
+	*/
 
 	if(zrsp.Config==NULL || zrsp.Size==0)
 	{
 		goto end;
 		return NMC_INVALIED_HANDLE;
 	}
-
 
 end:
 	{
@@ -778,18 +929,19 @@ int NMCDeviceImpl::AddSignalSource(struct st_jn_equ *equ)
 
 	//或者读取配置文件？？？？？？？？？？？？？？？
 	strcpy(req.Ip, info.ip);
-	strcpy(req.User, "admin");
-	strcpy(req.Password, "admin");
+	strcpy(req.User, "admin");    // to do...............
+	strcpy(req.Password, "admin");// to do...............
 	req.Port = 20000;
 	req.EventCallback = NULL;
 	req.EventCallbackUserData = NULL;
 
 	//登陆
 	if(_jt_login_dl==NULL || _jt_set_config_dl==NULL || _jt_logout_dl==NULL)
-		return NMC_INVALIED_HANDLE;
+		return NMC_ERROR_LOAD_LIB_FAILED;
 
 	//建立一个长的连接还是用一次，登一次？？？？？？？？？？？？？？？？
 
+	JtMutexAutoLock Lock(*nvrhandlelock);
 	struct stLogin_Rsp rsp;
 	int ret = _jt_login_dl(nvrhandle, &req, &rsp);
 	if(ret)
@@ -799,17 +951,26 @@ int NMCDeviceImpl::AddSignalSource(struct st_jn_equ *equ)
 
 	struct stSetConfig_Req creq;
 	struct stSetConfig_Rsp crsp;
-	creq. Channel = 0;
+	creq.Channel = 0;
 	creq.Codec = 0;
 	creq.Type = SET_CONFIG_ADD_EQU;
 
 	creq.Config = (char*)equ;
 	creq.Size = 1;
+	struct st_jn_sub_equ * jn_sub_equ = NULL;
+	int Cnt = 0;
 	res = _jt_set_config_dl(nvrhandle, &creq, &crsp);
 	if(res)
 	{
 		goto end;
 	}
+
+	jn_sub_equ = (struct st_jn_sub_equ *)calloc(equ->stSubEquCnt, sizeof(struct st_jn_sub_equ));
+	Cnt = equ->stSubEquCnt;
+	memcpy(jn_sub_equ,equ->stSubEqu,equ->stSubEquCnt*sizeof(struct st_jn_sub_equ));
+	_jt_free_dl(DEVICE_JN, FREE_MEMORY_JN_ADD_EQU, equ, 1);
+	equ->stSubEqu = jn_sub_equ;
+	equ->stSubEquCnt = Cnt;
 
 	/*
 	*sourceid = 0;
@@ -832,6 +993,12 @@ end:
 		//ok
 	}
 
+#if (defined(WIN32) || defined(WIN64))
+	Sleep(1000);
+#else
+	sleep(1);
+#endif
+
 	return res;
 }
 int NMCDeviceImpl::RemoveSignalSource(int equid)
@@ -853,10 +1020,11 @@ int NMCDeviceImpl::RemoveSignalSource(int equid)
 
 	//登陆
 	if(_jt_login_dl==NULL || _jt_set_config_dl==NULL || _jt_logout_dl==NULL)
-		return NMC_INVALIED_HANDLE;
+		return NMC_ERROR_LOAD_LIB_FAILED;
 
 	//建立一个长的连接还是用一次，登一次？？？？？？？？？？？？？？？？
 
+	JtMutexAutoLock Lock(*nvrhandlelock);
 	struct stLogin_Rsp rsp;
 	int ret = _jt_login_dl(nvrhandle, &req, &rsp);
 	if(ret)
@@ -1238,9 +1406,16 @@ int NMCDeviceImpl::SetWindowSignalSource(int windowtype, int windowid, int sourc
 	{
 		return NMC_GEN_REQ_FAILED;
 	}
-
+	
+	int res = -1;
+#if 0
+	ST_AFFAIR_CALLBACK AffairCallBack((long)this,static_OnGetSetWindowSignalSourceRsp,static_OnGotSetWindowSignalSourceOverTime);	
+	res = DoRequest(m_Conn, ReqMsg.data(), ReqMsg.size()+1, &AffairCallBack, Seq, EX_NMC_SET_WINDOW_SIGNAL_SOURCE_REQ);
+	return res;
+#else
 	ST_AFFAIR_CALLBACK AffairCallBack((long)this);
-	int res = DoRequest(m_Conn, ReqMsg.data(), ReqMsg.size()+1, &AffairCallBack, Seq, EX_NMC_SET_WINDOW_SIGNAL_SOURCE_REQ);
+#endif
+	res = DoRequest(m_Conn, ReqMsg.data(), ReqMsg.size()+1, &AffairCallBack, Seq, EX_NMC_SET_WINDOW_SIGNAL_SOURCE_REQ);
 	if(res)
 	{
 		return NMC_SEND_REQ_FAILED;
@@ -1261,11 +1436,18 @@ int NMCDeviceImpl::SetWindowSignalSource(int windowtype, int windowid, int sourc
 
 	if(nRetCode)
 	{
+		if(nRetCode==-1)
+		{
+			return NMC_SERVER_RETURN_ERROR;
+		}
+
 		return nRetCode;
 	}
 
 	return 0;
 }
+
+
 int NMCDeviceImpl::ClearWindowSignalSource(int windowtype, int outputid, int windowid)
 {
 	NmcMessage NmcMsg;
@@ -1278,16 +1460,26 @@ int NMCDeviceImpl::ClearWindowSignalSource(int windowtype, int outputid, int win
 		return NMC_GEN_REQ_FAILED;
 	}
 
+//异步
+#if 1
+	ST_AFFAIR_CALLBACK AffairCallBack((long)this,static_OnGetClearWindowSignalSourceRsp,static_OnGotClearWindowSignalSourceOverTime);
+	return DoRequest(m_Conn, ReqMsg.data(), ReqMsg.size()+1, &AffairCallBack, Seq, EX_NMC_CLEAR_WINDOW_SIGNAL_SOURCE_REQ);
+#else
 	ST_AFFAIR_CALLBACK AffairCallBack((long)this);
+#endif
+	
 	int res = DoRequest(m_Conn, ReqMsg.data(), ReqMsg.size()+1, &AffairCallBack, Seq, EX_NMC_CLEAR_WINDOW_SIGNAL_SOURCE_REQ);
 	if(res)
 	{
 		return NMC_SEND_REQ_FAILED;
 	}
 
+
 	string RspMsg;
 	if(AffairCallBack.m_pRecvData.size()==0)
-		return NMC_RECEIVE_REQ_FAILED;
+		//return NMC_RECEIVE_REQ_FAILED;
+		return 0;
+
 	RspMsg = AffairCallBack.m_pRecvData;
 
 	std::string strCache;
@@ -1772,7 +1964,10 @@ int NMCDeviceImpl::GetSurveyPlan(int survey_id, struct st_xy_survey_info **ppsur
 
 	if(nRetCode)
 	{
-		return nRetCode;
+		if(nRetCode==-1)
+			return NMC_SERVER_RETURN_ERROR;
+		else
+			return nRetCode;
 	}
 
 	return 0;

@@ -3,12 +3,22 @@
 #include "NmcErrorCode.h"
 #include "NMCDevice.h"
 #include "NMCDeviceImpl.h"
+#include "jtprintf.h"
 
 NMCDevice* NMCDevice::CreateNMC(int Type)
 {
 	return new NMCDevice();
 }
 
+
+int NMCDevice::GlobalInit()
+{
+	return NMCDeviceImpl::GlobalInit();
+}
+int NMCDevice::GlobalUninit()
+{
+	return NMCDeviceImpl::GlobalUninit();
+}
 int NMCDevice::Init(nmc_status_callback status_callback, void* userdata)
 {
 	if(_Impl)
@@ -37,6 +47,7 @@ NMCDevice::~NMCDevice(void)
 
 long NMCDevice::Login(struct login_info *info)
 {
+	jtprintf("[NMCDevice::%s]%p\n", __FUNCTION__, _Impl);
 	if(_Impl)
 	{
 		return _Impl->Login(info);

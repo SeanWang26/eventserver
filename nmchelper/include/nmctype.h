@@ -17,13 +17,16 @@
 
 #else //linux platform
 
-#define NMC_API
+#ifndef NMC_API
+#define NMC_API __attribute__ ((visibility ("default")))
+#endif
 
 #ifndef NMC_CALL_TYPE
 #define NMC_CALL_TYPE
 #endif
 
 #endif
+
 
 enum
 {
@@ -46,6 +49,12 @@ enum en_nmc_windowtType
 	NMC_SINGLE_WINDOW=0,    //单窗口   0
 	NMC_LARGE_WINDOW,       //拼接窗口 1
 	NMC_SLIDING_WINDOW,     //漫游窗口 2
+};
+
+enum en_nmc_power_manage
+{
+	NMC_HALT=1,    // 关闭
+	NMC_REBOOT,       // 重启
 };
 
 /************************************************
@@ -215,13 +224,16 @@ struct st_user_stream_state
 
 struct st_xy_device_info
 {
-	int  len;               //本结构体长度sizeof(struct st_video_stream_info)
-	int  device_type;       //设备类型
-	char ipv4[32];          //ip地址
+	int   len;               //本结构体长度sizeof(struct st_video_stream_info)
+	int   device_type;       //设备类型
+	char  ipv4[32];          //ip地址
 	char  mask[32];          //掩码
 	char  gateway[32];       //地址
-	char name[128];          //名字
-	int  res[64];           
+	char  name[128];         //名字
+	///int   res[64];
+
+	char  iface[16];         //接口名字
+	int   res[56];           //
 };
 
 struct st_jn_device

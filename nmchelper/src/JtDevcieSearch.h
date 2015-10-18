@@ -1,4 +1,4 @@
-#ifndef JT_DEVICE_SEARCH_H
+ï»¿#ifndef JT_DEVICE_SEARCH_H
 #define JT_DEVICE_SEARCH_H
 
 #include <time.h>
@@ -25,13 +25,15 @@ struct MuiltCastCmd
 	unsigned int 	      nContentSize;  //
 	unsigned char         cChecksum;     //
 };
+#pragma pack(pop)
 
-//CJtDevcieSearch ¸ÃÀà±ØĞëÊ¹ÓÃÓÃtr1::shared_ptrÀ´´´½¨£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡£¡
+//CJtDevcieSearch è¯¥ç±»å¿…é¡»ä½¿ç”¨ç”¨tr1::shared_ptræ¥åˆ›å»ºï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼ï¼
 class CJtDevcieSearch
 {
 	nmc_status_callback   m_pstatus_callback;
 	void*				  m_puserdata;
 
+	int                   m_running;
 #if (defined(WIN32) || defined(WIN64))
 	SOCKET m_nSockClientFd;
 	SOCKET m_nSockM;
@@ -42,12 +44,12 @@ class CJtDevcieSearch
 #endif
 	void StartReceiveThread();
 
-	struct sockaddr_in local_addr;/*±¾µØµØÖ·*/
+	struct sockaddr_in local_addr;/*æœ¬åœ°åœ°å€*/
 
-	int m_uMagic;
+	unsigned int m_uMagic;
 	int m_Order;
 
-	std::tr1::shared_ptr<CJtDevcieSearch> m_Self;
+	std::tr1::weak_ptr<CJtDevcieSearch> m_Self;
 
 	int NmcJoinMulticastGroup();
 	void HandleUdpCmd_GetAddrInfoRsp(struct MuiltCastCmd *Cmd);
@@ -57,10 +59,12 @@ class CJtDevcieSearch
 public:
 	CJtDevcieSearch(void);
 	~CJtDevcieSearch(void);
-		
-	int Init(std::tr1::shared_ptr<CJtDevcieSearch> Self, nmc_status_callback status_callback, void* userdata);
+
+	int Init(std::tr1::weak_ptr<CJtDevcieSearch> Self, nmc_status_callback status_callback, void* userdata);
 
 	void Search();
+	int ChangeDeviceNet(struct st_xy_device_info *old_device_info, struct st_xy_device_info *new_device_info);
+	int ShutdownDevice(struct st_xy_device_info *device_info, int type);
 };
 
 #endif

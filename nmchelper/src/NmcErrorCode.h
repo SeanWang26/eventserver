@@ -16,6 +16,8 @@
 #define NMC_SEND_DATA_FAILED                  -150 //数据发送失败
 #define NMC_RECEIVE_DATA_FAILED               -151 //数据接收失败
 
+#define NMC_ERROR_LOAD_LIB_FAILED             -496 //库加载失败
+#define NMC_ERROR_NOT_INIT_FAILED             -497 //调用次序错误
 #define NMC_ERROR_CALL_ORDER                  -498 //调用次序错误
 #define NMC_ERROR_UNKNOWN                     -499 //未知的错误
 #define NMC_NOT_IMPLEMENT                     -500 //未实现

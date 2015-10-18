@@ -1,4 +1,5 @@
 #include "StdAfx.h"
+#include <stdlib.h>
 #include "NmcCmdDefine.h"
 #include "TinyXmlHelper.h"
 #include "NmcCmdDefine.h"
@@ -32,7 +33,7 @@ int NmcMessage::BuildLoginReqMsg(char *UserName, char* Password, char* Cookie, i
 		//
 		return -1;
 	}
-	 
+	
 	tinyxml2::XMLElement *pRootElement = ReqDoc.RootElement();
 	ADD_ATTR(pRootElement,Cache,Cookie);
 	
@@ -3252,24 +3253,24 @@ int NmcMessage::ParserGetSurveyPlanRsp(const string &RspMsg, string &strCache, s
 	const char* data = RspMsg.data()+sizeof(ExCommand);
 	if(RspDoc.Parse(data) != XML_NO_ERROR)
 	{
-		return -1;
+		return -111123;
 	}
 	tinyxml2::XMLElement *pRootElement = RspDoc.RootElement();
 	if (NULL == pRootElement)
 	{
-		return -21;
+		return -232421;
 	}
 	strCache = SAFE_ITEM(pRootElement->Attribute("Cache"));
 
 	tinyxml2::XMLElement* RetValNode = pRootElement->FirstChildElement("RetVal");
 	if(RetValNode==NULL)
 	{
-		return -3; 
+		return -330989; 
 	}
 
 	if(RetValNode->QueryIntAttribute("Code", &nRetCode)!=XML_NO_ERROR)
 	{
-		return -4;
+		return -419770;
 	}
 
 	strRemark = SAFE_ITEM(RetValNode->Attribute("Remark"));
@@ -3277,11 +3278,11 @@ int NmcMessage::ParserGetSurveyPlanRsp(const string &RspMsg, string &strCache, s
 	tinyxml2::XMLElement* SurveyInfoListNode = pRootElement->FirstChildElement("SurveyInfoList");
 	if(SurveyInfoListNode==NULL)
 	{
-		return -3; 
+		return -35427; 
 	}
 
 	vector<struct st_xy_survey_info> TmpSurveyInfoS;
-	int max_info_cnt = 128;
+	//int max_info_cnt = 128;
 	tinyxml2::XMLElement* SurveyInfoNode = SurveyInfoListNode->FirstChildElement("SurveyInfo");	
 	while(SurveyInfoNode)
 	{
@@ -3307,13 +3308,13 @@ int NmcMessage::ParserGetSurveyPlanRsp(const string &RspMsg, string &strCache, s
 		tinyxml2::XMLElement* SignalSourceInfoListNode = SurveyInfoNode->FirstChildElement("SignalSourceInfoList");
 		if(SignalSourceInfoListNode==NULL)
 		{
-			return -56; 
+			return -563467; 
 		}
 		
 		tinyxml2::XMLElement* SourceInfoNode = SignalSourceInfoListNode->FirstChildElement("SourceInfo");
 		if(SourceInfoNode==NULL)
 		{
-			return -56; 
+			return -578471; 
 		}
 
 		vector<struct st_xy_sourceinfo> TmpSourceInfoS;

@@ -3,7 +3,9 @@
 
 #include <list>
 #include <vector>
-#include <functional>
+#include <set>
+
+#include "jtmutex.h"
 
 #if (defined(WIN32) || defined(WIN64))
 	#if (defined(WIN32))
@@ -28,6 +30,13 @@ struct event_base;
 
 class JtEventPairPipe;
 
+enum
+{
+	JTEVENTSERVER_NOTIFY_STOP_LOOP = 1,//停止服务
+	JTEVENTSERVER_NOTIFY_ADD_PEER,//添加一个peer
+	JTEVENTSERVER_TEST_CMD,//测试信令
+};
+
 class  JtEventServerCallbackSink
 {
 public:
@@ -38,53 +47,49 @@ public:
 class JtEventServer : public JtPairPipeEventCallbackSink
 {
 private:
-	typedef std::function<void(int,int)> AsynFunctor;
 	
-	class AsyncEvent 
-	{
-	public:
-		AsynFunctor m_Functor;
-		int m_Cmd;
-		int m_Seq;
-
-		AsyncEvent(AsynFunctor &&_Functor, int Cmd, int Seq):m_Functor(_Functor), m_Cmd(Cmd), m_Seq(Seq)
-		{
-			
-		}
-	};
-
 	CCachedAffairMapLock m_Lock;
-	map<unsigned long long, tr1::shared_ptr<CCachedAffair> > m_cachedMap;
+	map<unsigned long long, tr1::shared_ptr<CCachedAffair> > m_cachedMap;//不设置超时处理部分，必须被处理
 
 	//lock
-	std::list<JtEventPeer *> m_PeerWait2AddS;
+	JtMutex m_PeerLock;
+	std::map<int, JtEventPeer *> m_PeerWait2AddS;//改为弱指针
+	std::set<JtEventPeer *> m_PeerAddedS;//改为弱指针
 
-	std::vector<AsyncEvent> m_AsynEventS;
+	JtMutex m_EventLock;
+	std::list<AsyncEvent> m_AsynEventS;
 
 	struct event_base *base;
 	int m_Started;
 	JtEventPairPipe *pEventPairPipe;
 
+	int InHandling;
 	static void InitJtEventServer(void);
 #if (defined(WIN32) || defined(WIN64))
-	static void Static_StartInThread(void *arg);
+	HANDLE  tid;
+	unsigned threadID;
+	static unsigned int __stdcall  Static_StartInThread(void *arg);
 #else
+	pthread_t tid;
 	static void *Static_StartInThread(void *arg);
 #endif
 
 	int Started();
 	int EventLoop();
-	
-	void AddPeerInner(int cmd, int seq);
+	int IsInThread();
+
+	int AddPeerInner(int cmd, int seq);
+	int StopInner(int cmd, int seq);
+	int TestCmdInner(int cmd, int seq);
 
 	virtual int OnRecvData(void* Cookie, unsigned char* pData, int dataLen);
 	virtual int OnStateChanged(void* Cookie);
 
-	int NotifyAddPeer();
+	//int NotifyAddPeer();
 
 public:
 	JtEventServer();
-	~JtEventServer();
+	virtual ~JtEventServer();
 
 	int Start();
 	
@@ -93,9 +98,14 @@ public:
 	struct event_base *GetBase() { return base; }
 
 	int AddPeer(JtEventPeer* Peer);
+	int RmvPeer(JtEventPeer* Peer);
+
 	int TestCmd();
 
-	int DoInAsyn(AsynFunctor &&Functor);
+	int DoInSync(AsyncEvent Event);
+	int DoInAsyn(AsyncEvent Event);
+
+
 };
 
 #endif

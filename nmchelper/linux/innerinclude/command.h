@@ -304,13 +304,13 @@ struct stGetVideoRecord_Rsp
 	char                    		TaskUuid[64];              // 检索的任务号
 	int                     		NewFind;                   // 文件索引	
 	struct st_video_record_info*    VideoRecordInfo;
-	int                             Conut;
+	int                             VideoRecordInfoCnt;
 };
 
 //回放控制
 struct stPlaybackCtrl_Req
 {
-	long long				DeviceHandle;
+	long long				RecordHandle;
 	int                     Area;
 	char                    TaskUuid[64];              // 检索的任务号
 	int                     Channel;                   // 通道号
@@ -318,6 +318,7 @@ struct stPlaybackCtrl_Req
 	int                     Action;                    // 0播放，1 停止，2快进，3快退，4帧进，5帧退，6暂停，7拖放
 	int                     Speed;                     // 取值范围1-64
 	long long               SeekTime;                  // 64位，拖放移动到的相对时间 ""
+	long long               DurationTime;                
 	jt_stream_callback      Callback;
 	void*                   UserData;
 };
@@ -352,7 +353,7 @@ struct stManualRecord_Rsp
 };
 
 
-enum { PTZ_MOVE=0, PTZ_STOP, PTZ_TOUR_START, PTZ_TOUR_STOP, SET_DEFAULT_POS, GOTO_PRESET, SET_PRESET, CLEAR_PRESET, SET_TOUR_LIST, AUTO_FOUS};
+//enum { PTZ_MOVE=0, PTZ_STOP, PTZ_TOUR_START, PTZ_TOUR_STOP, SET_DEFAULT_POS, GOTO_PRESET, SET_PRESET, CLEAR_PRESET, SET_TOUR_LIST, AUTO_FOUS};
 
 //云台方向
 /*typedef enum {PTZ_LEFT,PTZ_LEFT_UP,PTZ_UP,PTZ_UP_RIGHT,PTZ_RIGHT,PTZ_DOWN_RIGHT,PTZ_DOWN,PTZ_DOWN_LEFT,PTZ_ABSOLUTE_POS,PTZ_STOP_MOVE,\

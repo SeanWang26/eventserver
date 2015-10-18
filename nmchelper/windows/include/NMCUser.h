@@ -468,11 +468,21 @@ NMC_API int NMC_CALL_TYPE nmc_search_device(struct st_xy_device_info **device_in
 /*
 函数说明:修改设备网络参数
 参数说明：
-[in] device_info          设备信息
-[in] len                  设备信息长度
+[in] old_device_info      原来的设备信息
+[in] new_device_info      新的设备信息
 返回值说明：成功返回0，失败返回非0
 */
 NMC_API int NMC_CALL_TYPE nmc_change_device_net(struct st_xy_device_info *old_device_info, struct st_xy_device_info *new_device_info);
+
+/*
+函数说明:关闭或重启设备
+参数说明：
+[in] device_info          设备信息
+[in] type       1：关机  2重启
+返回值说明：成功返回0，失败返回非0
+*/
+
+NMC_API int NMC_CALL_TYPE nmc_shutdown_device(struct st_xy_device_info *device_info, int type);
 
 
 
@@ -480,6 +490,7 @@ NMC_API int NMC_CALL_TYPE nmc_free_userdefinedata(struct st_xy_user_data *ppuser
 NMC_API int NMC_CALL_TYPE nmc_free_matrix_info(struct st_matrix_info *pmatrix_info, int matrix_info_cnt);
 NMC_API int NMC_CALL_TYPE nmc_free_output_info(struct st_output_layout *poutput_layout, int output_layout_cnt);
 NMC_API int NMC_CALL_TYPE nmc_free_equ_info(struct st_jn_equ *equ, int equcnt);
+NMC_API int NMC_CALL_TYPE nmc_free_add_equ_info(struct st_jn_equ *equ);//nmc_add_signal_source专用
 NMC_API int NMC_CALL_TYPE nmc_free_large_screen_info(struct st_large_screen_info *plarge_screen_info, int large_screen_info_cnt);
 NMC_API int NMC_CALL_TYPE nmc_free_sw_windows_info(struct st_sw_window_info* info, int info_cnt);
 NMC_API int NMC_CALL_TYPE nmc_free_survey_plan_info(struct st_xy_survey_info *ppsurvey_info, int survey_info_cnt);

@@ -1,8 +1,17 @@
 #ifndef TINYXML_HELPER_H
 #define TINYXML_HELPER_H
 
+
+#if (defined(WIN32) || defined(WIN64))
 #include <tinyxml2/tinyxml2.h>
-//#include "tinyxml2\tinyxml2.h"
+//#include "tinyxml2.h"
+#else
+#pragma GCC visibility push(hidden)
+#include <tinyxml2/tinyxml2.h>
+//#include "tinyxml2.h"
+#pragma GCC visibility pop
+#endif
+
 #include <stdio.h>
 using namespace tinyxml2;
 

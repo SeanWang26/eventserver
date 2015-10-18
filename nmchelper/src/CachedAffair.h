@@ -22,6 +22,18 @@ using namespace std;
 
 #include "COMM_HEADER.h"
 
+#if (defined(WIN32) || defined(WIN64))
+
+#include <Windows.h>
+
+#define JT_AMIOC_ADD(NUM,ONE) InterlockedExchangeAdd(&NUM,ONE);
+
+#else
+
+#define JT_AMIOC_ADD(NUM,ONE) __sync_add_and_fetch(&NUM,ONE);
+
+#endif
+
 struct ST_AFFAIR_CALLBACK
 {
 public:
@@ -70,8 +82,8 @@ public:
 class CCachedAffair
 {
 private:
-	static int gCachedAffairId;
-	int m_CachedAffairId;
+	///////static int gCachedAffairId;
+	///////int m_CachedAffairId;
 public:
 
 #if (defined(WIN32) || defined(WIN64))
@@ -145,7 +157,7 @@ private:
                 return false;
 
 			//return (pAffairItem->m_nExptedRecvCmdIdx == m_nRecvCmdIdx ) ? true : false;
-            return (pAffairItem->m_nOutSeqIdx == m_nRecvSeqIdx) ? true : false;
+            return pAffairItem->m_nOutSeqIdx == m_nRecvSeqIdx;
         }
     private:
         int				m_nRecvCmdIdx;
@@ -155,8 +167,19 @@ protected:
     CCachedAffairMap();
     ~CCachedAffairMap();
 public:
+
+	//static int Static_PushNewAffair(map<unsigned long long, tr1::shared_ptr<CCachedAffair> >& cachedMap, CCachedAffairMapLock &Lock
+	//	, ST_AFFAIR_CALLBACK* pAffairCallBack, long nOutSeqId, int nOutCmdId, int nExpetedCmdId);
+
+	static unsigned long long Static_PushNewAffair_Pre(map<unsigned long long, tr1::shared_ptr<CCachedAffair> >& cachedMap, CCachedAffairMapLock &Lock
+		, tr1::shared_ptr<CCachedAffair> Affair, long nOutSeqId, int nOutCmdId, int nExpetedCmdId);
+
+	static unsigned long long Static_CancelAffair_Pre(map<unsigned long long, tr1::shared_ptr<CCachedAffair> >& cachedMap, CCachedAffairMapLock &Lock
+		, unsigned long long AffairId);
+	
 	static int Static_PushNewAffair(map<unsigned long long, tr1::shared_ptr<CCachedAffair> >& cachedMap, CCachedAffairMapLock &Lock
-		, ST_AFFAIR_CALLBACK* pAffairCallBack, long nOutSeqId, int nOutCmdId, int nExpetedCmdId);
+		, tr1::shared_ptr<CCachedAffair> Affair, unsigned long long AffairId);//, long nOutSeqId, int nOutCmdId, int nExpetedCmdId
+
 	static int Static_CheckBeOverTime(map<unsigned long long, tr1::shared_ptr<CCachedAffair> >& cachedMap, CCachedAffairMapLock &Lock, long nowTime);
 	static int Static_CheckBeExptedData(map<unsigned long long, tr1::shared_ptr<CCachedAffair> >& cachedMap, CCachedAffairMapLock &Lock
 		, unsigned char* pData, long dataLen);

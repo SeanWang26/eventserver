@@ -53,10 +53,10 @@ CCachedAffairMapLock::~CCachedAffairMapLock()
 }
 
 
-int CCachedAffair::gCachedAffairId=0;
+///int CCachedAffair::gCachedAffairId=0;
 
 CCachedAffair::CCachedAffair(ST_AFFAIR_CALLBACK* pAffairCallBack)
-:m_CachedAffairId(++gCachedAffairId),m_recvDataCanceled(0)
+:m_recvDataCanceled(0)//m_CachedAffairId(++gCachedAffairId),
 ,m_fpOnGotData(NULL),m_fpOnAffairOverTime(NULL),m_dwUserCookie(0),m_dwPushedTime(time(0))
 ,m_nOverTime(1000),m_nOutCmdIdx(0),m_nExptedRecvCmdIdx(0),m_nOutSeqIdx(0)//,m_pRecvDataBuf(NULL),m_recvDataSize(0)
 
@@ -74,14 +74,16 @@ CCachedAffair::CCachedAffair(ST_AFFAIR_CALLBACK* pAffairCallBack)
     else
     {
     	//jtprintf("[%s]new Id %d, Syn\n", __FUNCTION__, m_CachedAffairId);
- 
+
+		m_dwUserCookie			= pAffairCallBack->m_dwUserCookie;
+        m_nOverTime				= pAffairCallBack->m_nOverTime;
+		
 #if (defined(WIN32) || defined(WIN64))
 		m_handleOverTime		= CreateEvent(NULL,TRUE,FALSE,NULL);
 #else
 		pthread_cond_init(&m_handleOverTime,NULL);
 		pthread_mutex_init(&m_ConditionMutex,NULL);
 #endif
-		
 
     }
 }
@@ -90,7 +92,7 @@ CCachedAffair::~CCachedAffair(void)
 {
 	//jtprintf("[%s]1\n", __FUNCTION__, m_CachedAffairId);
 
-    try
+    //try
    	{
 	    /*if (NULL != m_pRecvDataBuf)
 	    {
@@ -126,7 +128,7 @@ CCachedAffair::~CCachedAffair(void)
 #endif
 		}
     }
-	catch(...)
+	//catch(...)
 	{
 
 	}
@@ -134,14 +136,14 @@ CCachedAffair::~CCachedAffair(void)
 
 int CCachedAffair::DoOverTime()
 {
-	try
+	//try
    	{
 	    if (m_fpOnAffairOverTime)
 	        m_fpOnAffairOverTime(m_dwUserCookie);
 
 	    return 1;
 	}
-	catch(...)
+	//catch(...)
 	{
 
 	}
@@ -150,7 +152,7 @@ int CCachedAffair::DoOverTime()
 
 int CCachedAffair::DoOnGotData(unsigned char* pData, int dataLen)
 {
-	try
+	//try
    	{
 	    if (m_fpOnGotData && m_fpOnAffairOverTime)//  m_fpOnGotData不为0，为异步
 	    {
@@ -171,7 +173,7 @@ int CCachedAffair::DoOnGotData(unsigned char* pData, int dataLen)
 #if (defined(WIN32) || defined(WIN64))
 
 #else
-				pthread_mutex_lock(&m_ConditionMutex);
+				pthread_mutex_unlock(&m_ConditionMutex);
 #endif
 	            return 3;
 	        }
@@ -190,7 +192,7 @@ int CCachedAffair::DoOnGotData(unsigned char* pData, int dataLen)
 	    }
 	    return 1;
 	}
-	catch(...)
+	///catch(...)
 	{
 
 	}
@@ -220,45 +222,67 @@ CCachedAffairMap::~CCachedAffairMap()
 
 }
 
+
+unsigned long long CCachedAffairMap::Static_PushNewAffair_Pre(map<unsigned long long, tr1::shared_ptr<CCachedAffair> >& cachedMap, CCachedAffairMapLock &Lock
+	, tr1::shared_ptr<CCachedAffair> pCachedAffairItem, long nOutSeqId, int nOutCmdId, int nExpetedCmdId)//
+{
+	if(((!!(pCachedAffairItem->m_fpOnGotData)) ^ (!!(pCachedAffairItem->m_fpOnAffairOverTime))))
+	{
+		//同时有，同时没有才正确
+		return -2;
+	}
+
+	pCachedAffairItem->SetSequencePair(nOutSeqId);
+	pCachedAffairItem->SetCommandIdxPair(nOutCmdId,nExpetedCmdId);
+
+	//unsigned long long AffairId=0;
+	{
+		//缩小加锁范围
+		///AffairId = nOutSeqId;//JT_AMIOC_ADD(m_lastSeq,1);//使用外部的nOutSeqId，因为处理时可能涉及批量
+		//if(AffairId==0)
+		//	AffairId = JT_AMIOC_ADD(m_lastSeq,1);
+
+		Lock.LockMap();
+		cachedMap[nOutSeqId] = pCachedAffairItem;
+		Lock.UnLockMap();
+	}
+
+	return nOutSeqId;
+}
+unsigned long long CCachedAffairMap::Static_CancelAffair_Pre(map<unsigned long long, tr1::shared_ptr<CCachedAffair> >& cachedMap, CCachedAffairMapLock &Lock
+		, unsigned long long AffairId)
+{
+	{
+		//缩小加锁范围
+		Lock.LockMap();
+		cachedMap.erase(AffairId);
+		Lock.UnLockMap();	
+	}
+	return AffairId;
+}
+
 #if (defined(WIN32) || defined(WIN64))
 int CCachedAffairMap::Static_PushNewAffair(map<unsigned long long, tr1::shared_ptr<CCachedAffair> >& m_cachedAffairMap, CCachedAffairMapLock &Lock, 
-	ST_AFFAIR_CALLBACK* pAffairCallBack, long nOutSeqId , int nOutCmdId, int nExpetedCmdId)
+	tr1::shared_ptr<CCachedAffair> pCachedAffairItem, unsigned long long AffairId)
 {
-	if (NULL == pAffairCallBack)
-		return -1;
-
-	if(((!!pAffairCallBack->m_pOnGotData) ^ (!!pAffairCallBack->m_pOnAffairOverTime)))
+/*
+	if(((!!(pCachedAffairItem->m_fpOnGotData)) ^ (!!(pCachedAffairItem->m_fpOnAffairOverTime))))
 	{
 		//同时有，同时没有才正确
 		//printf("[%s]---sss-----------\n", __FUNCTION__);
 		return -2;
 	}
-
+*/
 	try
 	{
 		//默认事物超时时间为1秒
-		int nOverTimeSecond	= pAffairCallBack->m_nOverTime/1000;
-		int nOverTimeMSecond = pAffairCallBack->m_nOverTime%1000;
+		//int nOverTimeSecond	= pAffairCallBack->m_nOverTime/1000;
+		
+		////tr1::shared_ptr<CCachedAffair> pCachedAffairItem(new CCachedAffair(pAffairCallBack));
+		//if (!pCachedAffairItem)
+		///	return -2;
 
-		tr1::shared_ptr<CCachedAffair> pCachedAffairItem(new CCachedAffair(pAffairCallBack));
-		if (!pCachedAffairItem)
-			return -2;
-
-		pCachedAffairItem->SetSequencePair(nOutSeqId);
-		pCachedAffairItem->SetCommandIdxPair(nOutCmdId,nExpetedCmdId);
-
-		unsigned long long overTime_t=0;
-		{
-			//缩小加锁范围
-			Lock.LockMap();
-
-			overTime_t = (unsigned long long)++m_lastSeq;
-			m_cachedAffairMap[overTime_t] = pCachedAffairItem;
-
-			Lock.UnLockMap();	
-		}
-
-		if(pAffairCallBack->m_pOnGotData)
+		if(pCachedAffairItem->m_fpOnGotData)
 		{
 			//是异步的
 			return 1;
@@ -268,27 +292,28 @@ int CCachedAffairMap::Static_PushNewAffair(map<unsigned long long, tr1::shared_p
 			//是同步的，等待事件返回
 
 			//条件变量界限开始
+			int nOverTimeMSecond = pCachedAffairItem->m_nOverTime;//%1000;
 
-			DWORD res = WaitForSingleObject(pCachedAffairItem->m_handleOverTime, nOverTimeSecond*1000+nOverTimeMSecond);
+			DWORD res = 0;
+			if(nOverTimeMSecond==-1)
+				res = WaitForSingleObject(pCachedAffairItem->m_handleOverTime, INFINITE);
+			else
+				res = WaitForSingleObject(pCachedAffairItem->m_handleOverTime, nOverTimeMSecond);
+
 			//jtprintf("[%s]pthread_cond_timedwait after, %d, %d\n", __FUNCTION__, res, errno);
 			if(res==WAIT_OBJECT_0)
 			{
 				//同步接收到数据
 				//jtprintf("[%s]pthread_cond_timedwait, %d, get data  %p, %d\n", __FUNCTION__, res, pCachedAffairItem->m_pRecvDataBuf, pCachedAffairItem->m_recvDataSize);
 				if(!pCachedAffairItem->m_recvDataCanceled
-					//&& pCachedAffairItem->m_recvDataSize
 					&& pCachedAffairItem->m_pRecvDataBuf.size())
 				{
-					//pAffairCallBack->m_pRecvSize	= pCachedAffairItem->m_recvDataSize;
-					pAffairCallBack->m_pRecvData  = pCachedAffairItem->m_pRecvDataBuf;
-
-					//pCachedAffairItem->m_recvDataSize = 0;
-					//pCachedAffairItem->m_pRecvDataBuf =0;
+					//pAffairCallBack->m_pRecvData  = pCachedAffairItem->m_pRecvDataBuf;
 				}	
 
 				{
 					Lock.LockMap();
-					m_cachedAffairMap.erase(overTime_t);
+					m_cachedAffairMap.erase(AffairId);
 					Lock.UnLockMap();
 				}
 
@@ -301,12 +326,11 @@ int CCachedAffairMap::Static_PushNewAffair(map<unsigned long long, tr1::shared_p
 				if(pCachedAffairItem->m_pRecvDataBuf.size())
 				{
 					//超时，但是有数据
-					///pAffairCallBack ->m_pRecvSize	= pCachedAffairItem->m_recvDataSize;
-					pAffairCallBack ->m_pRecvData  = pCachedAffairItem->m_pRecvDataBuf;
+					////pAffairCallBack ->m_pRecvData  = pCachedAffairItem->m_pRecvDataBuf;
 					
 					{
 						Lock.LockMap();
-						m_cachedAffairMap.erase(overTime_t);
+						m_cachedAffairMap.erase(AffairId);
 						Lock.UnLockMap();
 					}
 
@@ -321,8 +345,9 @@ int CCachedAffairMap::Static_PushNewAffair(map<unsigned long long, tr1::shared_p
 				pCachedAffairItem->m_recvDataCanceled = true;
 			}
 
+			//系统错误
 			Lock.LockMap();
-			m_cachedAffairMap.erase(overTime_t);
+			m_cachedAffairMap.erase(AffairId);
 			Lock.UnLockMap();
 
 			return -3;
@@ -332,7 +357,7 @@ int CCachedAffairMap::Static_PushNewAffair(map<unsigned long long, tr1::shared_p
 	}
 	catch(...)
 	{
-		//jtprintf("[%s]catch\n", __FUNCTION__);
+		jtprintf("[%s]catch---------------------------------------------\n", __FUNCTION__);
 	}
 
 	return -1;
@@ -341,43 +366,22 @@ int CCachedAffairMap::Static_PushNewAffair(map<unsigned long long, tr1::shared_p
 #else
 
 int CCachedAffairMap::Static_PushNewAffair(map<unsigned long long, tr1::shared_ptr<CCachedAffair> >& cachedMap, CCachedAffairMapLock &Lock, 
-	ST_AFFAIR_CALLBACK* pAffairCallBack, long nOutSeqId , int nOutCmdId, int nExpetedCmdId)
+	tr1::shared_ptr<CCachedAffair> pCachedAffairItem, unsigned long long AffairId)
 {
-	if (NULL == pAffairCallBack)
-		return -1;
-
+	//if (NULL == pAffairCallBack)
+	//	return -1;
+	/*
 	if(((!!pAffairCallBack->m_pOnGotData) ^ (!!pAffairCallBack->m_pOnAffairOverTime)))
 	{
 		//同时有，同时没有才正确
 		//printf("[%s]---sss-----------\n", __FUNCTION__);
 		return -2;
 	}
-
-	try
+	*/
+	
+	//try
 	{
-		//默认事物超时时间为1秒
-		int nOverTimeSecond	= pAffairCallBack->m_nOverTime/1000;
-		int nOverTimeMSecond = pAffairCallBack->m_nOverTime%1000;
-
-		tr1::shared_ptr<CCachedAffair> pCachedAffairItem(new CCachedAffair(pAffairCallBack));
-		if (!pCachedAffairItem)
-			return -2;
-
-		pCachedAffairItem->SetSequencePair(nOutSeqId);
-		pCachedAffairItem->SetCommandIdxPair(nOutCmdId,nExpetedCmdId);
-
-		unsigned long long overTime_t=0;
-		{
-			//缩小加锁范围
-			Lock.LockMap();
-
-			overTime_t = (unsigned long long)++m_lastSeq;
-			cachedMap[overTime_t] = pCachedAffairItem;
-
-			Lock.UnLockMap();	
-		}
-
-		if(pAffairCallBack->m_pOnGotData)
+		if(pCachedAffairItem->m_fpOnGotData)
 		{
 			//是异步的
 			return 1;
@@ -385,42 +389,62 @@ int CCachedAffairMap::Static_PushNewAffair(map<unsigned long long, tr1::shared_p
 		else
 		{
 			//是同步的，等待事件返回
-			int res=0;
+			jtprintf("[%s]nOverTimeSecond %d\n", __FUNCTION__, pCachedAffairItem->m_nOverTime);
 
+			struct timespec outtime;
+			if(pCachedAffairItem->m_nOverTime!=-1)
+			{
+				int nOverTimeSecond	= pCachedAffairItem->m_nOverTime/1000;
+				int nOverTimeMSecond = pCachedAffairItem->m_nOverTime%1000;
+
+				struct timeval now;
+				
+				gettimeofday(&now, NULL);
+				clock_gettime(CLOCK_REALTIME, &outtime);
+				outtime.tv_sec = now.tv_sec + nOverTimeSecond;
+				outtime.tv_nsec = now.tv_usec + nOverTimeMSecond * 1000;
+			}
+			
 			//条件变量界限开始
 			pthread_mutex_lock(&pCachedAffairItem->m_ConditionMutex);
 
-			struct timeval now;
-			struct timespec outtime;
-			gettimeofday(&now, NULL);
-			clock_gettime(CLOCK_REALTIME, &outtime);
-			outtime.tv_sec = now.tv_sec + nOverTimeSecond;
-			outtime.tv_nsec = now.tv_usec + nOverTimeMSecond * 1000;
-
 			//jtprintf("[%s]pthread_cond_timedwait before %d %d, %ld\n", __FUNCTION__, nOverTimeSecond, nOverTimeMSecond, outtime.tv_sec);
+			if(pCachedAffairItem->m_pRecvDataBuf.size())
+			{
+				//还未等待就已经得到数据了
+				pthread_mutex_unlock(&pCachedAffairItem->m_ConditionMutex);
 
-			res = pthread_cond_timedwait(&(pCachedAffairItem->m_handleOverTime), &(pCachedAffairItem->m_ConditionMutex), &outtime);
+				{
+					Lock.LockMap();
+					cachedMap.erase(AffairId);
+					Lock.UnLockMap();
+				}
+
+				return 0;
+			}
+			
+			int res = 0;
+			if(pCachedAffairItem->m_nOverTime!=-1)
+				res = pthread_cond_timedwait(&(pCachedAffairItem->m_handleOverTime), &(pCachedAffairItem->m_ConditionMutex), &outtime);
+			else
+				res = pthread_cond_wait(&(pCachedAffairItem->m_handleOverTime), &(pCachedAffairItem->m_ConditionMutex));
+			
 			//jtprintf("[%s]pthread_cond_timedwait after, %d, %d\n", __FUNCTION__, res, errno);
 			if(res==0)
 			{
 				//同步接收到数据
 				//jtprintf("[%s]pthread_cond_timedwait, %d, get data  %p, %d\n", __FUNCTION__, res, pCachedAffairItem->m_pRecvDataBuf, pCachedAffairItem->m_recvDataSize);
-				if(!pCachedAffairItem->m_recvDataCanceled
-					//&& pCachedAffairItem->m_recvDataSize
-					&& pCachedAffairItem->m_pRecvDataBuf.size())
+				if(//!pCachedAffairItem->m_recvDataCanceled&& 
+					pCachedAffairItem->m_pRecvDataBuf.size())
 				{
-					//pAffairCallBack->m_pRecvSize	= pCachedAffairItem->m_recvDataSize;
-					pAffairCallBack->m_pRecvData  = pCachedAffairItem->m_pRecvDataBuf;
-
-					//pCachedAffairItem->m_recvDataSize = 0;
-					//pCachedAffairItem->m_pRecvDataBuf =0;
+					///pAffairCallBack->m_pRecvData  = pCachedAffairItem->m_pRecvDataBuf;
 				}
 
 				pthread_mutex_unlock(&pCachedAffairItem->m_ConditionMutex);
 
 				{
 					Lock.LockMap();
-					cachedMap.erase(overTime_t);
+					cachedMap.erase(AffairId);
 					Lock.UnLockMap();
 				}
 
@@ -428,31 +452,29 @@ int CCachedAffairMap::Static_PushNewAffair(map<unsigned long long, tr1::shared_p
 			}
 			else if(res==ETIMEDOUT)
 			{
-				//jtprintf("[%s]res==ETIMEDOUT, %d\n", __FUNCTION__, res);
-
 				//等待超时，也要检查是否有数据了
-				if(//pCachedAffairItem->m_recvDataSize && 
-					pCachedAffairItem->m_pRecvDataBuf.size())
+				jtprintf("[%s]res==ETIMEDOUT, size %d, timeout %d\n"
+						, __FUNCTION__, pCachedAffairItem->m_pRecvDataBuf.size(), pCachedAffairItem->m_nOverTime);
+				if(pCachedAffairItem->m_pRecvDataBuf.size())
 				{
 					//超时，但是有数据
-					///pAffairCallBack ->m_pRecvSize	= pCachedAffairItem->m_recvDataSize;
-					pAffairCallBack ->m_pRecvData  = pCachedAffairItem->m_pRecvDataBuf;
-
-					//pCachedAffairItem->m_recvDataSize = 0;
-					//pCachedAffairItem->m_pRecvDataBuf =0;
+					////pAffairCallBack ->m_pRecvData  = pCachedAffairItem->m_pRecvDataBuf;
 
 					pthread_mutex_unlock(&pCachedAffairItem->m_ConditionMutex);
-
 					{
 						Lock.LockMap();
-						cachedMap.erase(overTime_t);
+						cachedMap.erase(AffairId);
 						Lock.UnLockMap();
 					}
 
 					return 0;
 				}
 
+				pthread_mutex_unlock(&pCachedAffairItem->m_ConditionMutex);
+
 				pCachedAffairItem->m_recvDataCanceled = true;
+
+				return -2;
 			}
 			else
 			{
@@ -463,7 +485,7 @@ int CCachedAffairMap::Static_PushNewAffair(map<unsigned long long, tr1::shared_p
 			pthread_mutex_unlock(&pCachedAffairItem->m_ConditionMutex);
 
 			Lock.LockMap();
-			cachedMap.erase(overTime_t);
+			cachedMap.erase(AffairId);
 			Lock.UnLockMap();
 
 			return -3;
@@ -471,9 +493,9 @@ int CCachedAffairMap::Static_PushNewAffair(map<unsigned long long, tr1::shared_p
 
 		return 0;
 	}
-	catch(...)
+	//catch(...)
 	{
-		//jtprintf("[%s]catch\n", __FUNCTION__);
+		jtprintf("[%s]catch\n", __FUNCTION__);
 	}
 
 	return -1;
@@ -482,7 +504,8 @@ int CCachedAffairMap::Static_PushNewAffair(map<unsigned long long, tr1::shared_p
 int CCachedAffairMap::Static_CheckBeExptedData(map<unsigned long long, tr1::shared_ptr<CCachedAffair> >& m_cachedAffairMap, CCachedAffairMapLock &Lock
 	, unsigned char* pData, long dataLen)
 {
-	try{
+	///try
+	{
 
 	    ST_ICMS_CMD_HEADER* pCmdHeader = (ST_ICMS_CMD_HEADER*)pData;
 	    if(!pCmdHeader) //|| IsBadReadPtr(pCmdHeader,sizeof(ST_ICMS_CMD_HEADER)))
@@ -496,7 +519,7 @@ int CCachedAffairMap::Static_CheckBeExptedData(map<unsigned long long, tr1::shar
 				, CBeExpectedDataComing<unsigned long long, tr1::shared_ptr<CCachedAffair> > (pCmdHeader->nCmdType, pCmdHeader->nCmdSeq));
 			if (iter != m_cachedAffairMap.end ())
 			{
-				pAffairItem = iter->second ;
+				pAffairItem = iter->second;
 				m_cachedAffairMap.erase (iter);
 			}
 
@@ -510,7 +533,7 @@ int CCachedAffairMap::Static_CheckBeExptedData(map<unsigned long long, tr1::shar
 
 	    return 1;
 	}
-	catch(...)
+	///catch(...)
 	{
 
 	}
@@ -522,20 +545,21 @@ int CCachedAffairMap::Static_CheckBeOverTime(map<unsigned long long, tr1::shared
 {
 	//只处理异步的超时
 	
-	try
+	//try
 	{
 		list<tr1::shared_ptr<CCachedAffair> >				listNeedRemove ;
 	    {
 			//先将超时的条目移除
-			Lock.LockMap();			
+			Lock.LockMap();		
+#if 0
 	        if (cachedMap.size () < 1)
 			{
 				Lock.UnLockMap();
 	            return 1;
 			}
 
-	        map<unsigned long long, tr1::shared_ptr<CCachedAffair> >::iterator iter = cachedMap.end ();
-	        iter = find_if (iter ,cachedMap.end (),CCachedAffairMap::CBeOverTime<unsigned long long,CCachedAffair*> (nowTime));
+	        map<unsigned long long, tr1::shared_ptr<CCachedAffair> >::iterator iter 
+				= find_if (cachedMap.begin(), cachedMap.end (), CCachedAffairMap::CBeOverTime<unsigned long long,CCachedAffair*> (nowTime));
 	        while (iter != cachedMap.end ())
 	        {
 	            tr1::shared_ptr<CCachedAffair> pAffairItem = iter->second;
@@ -548,6 +572,22 @@ int CCachedAffairMap::Static_CheckBeOverTime(map<unsigned long long, tr1::shared
 				
 	            iter = find_if (iter ,cachedMap.end (),CCachedAffairMap::CBeOverTime<unsigned long long,CCachedAffair*> (nowTime));
 	        }
+#else
+
+#endif
+			for(map<unsigned long long, tr1::shared_ptr<CCachedAffair> >::iterator iter = cachedMap.begin();iter!=cachedMap.end();++iter)
+			{
+				if((iter->second ->m_dwPushedTime + iter->second ->m_nOverTime) < nowTime)
+				{
+					tr1::shared_ptr<CCachedAffair> pAffairItem = iter->second;
+					listNeedRemove.push_back (pAffairItem);
+					cachedMap.erase(iter);
+
+					++iter;
+					if (iter == cachedMap.end ())
+						break;
+				}
+			}
 
 			Lock.UnLockMap();
 	    }
@@ -561,7 +601,7 @@ int CCachedAffairMap::Static_CheckBeOverTime(map<unsigned long long, tr1::shared
 
 	    return 1;
 	}
-	catch(...)
+	//catch(...)
 	{
 
 	}
@@ -570,14 +610,14 @@ int CCachedAffairMap::Static_CheckBeOverTime(map<unsigned long long, tr1::shared
 }
 int CCachedAffairMap::Static_ClearCachedItem(map<unsigned long long, tr1::shared_ptr<CCachedAffair> >& cachedMap, CCachedAffairMapLock &Lock)
 {
-    try
+    //try
 	{
 		Lock.LockMap();	
 		cachedMap.clear();
 		Lock.UnLockMap();
 	    return 1;
 	}
-	catch(...)
+	//catch(...)
 	{
 
 	}

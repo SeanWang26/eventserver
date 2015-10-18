@@ -6,7 +6,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 #endif
+#include <stdlib.h>
 #include <errno.h>
+#include <stdio.h>
 #include <string.h>
 #include <string>
 #include "TinyXmlHelper.h"
@@ -49,9 +51,12 @@ CJtDevcieSearch::CJtDevcieSearch(void)
 	m_uMagic = rand();
 
 	m_Order = 1;
+
+	m_running = 0;
 }
 CJtDevcieSearch::~CJtDevcieSearch(void)
 {
+	jtprintf("[%s]\n", __FUNCTION__);
 #if (defined(WIN32) || defined(WIN64))
 	if(m_nSockM!=INVALID_SOCKET)
 	{
@@ -71,9 +76,9 @@ CJtDevcieSearch::~CJtDevcieSearch(void)
 	}
 #endif
 
-
+	m_running = 0;
 }
-int CJtDevcieSearch::Init(std::tr1::shared_ptr<CJtDevcieSearch> Self, nmc_status_callback status_callback, void* userdata)
+int CJtDevcieSearch::Init(std::tr1::weak_ptr<CJtDevcieSearch> Self, nmc_status_callback status_callback, void* userdata)
 {
 	m_pstatus_callback = status_callback;
 	m_puserdata = userdata;
@@ -84,11 +89,16 @@ int CJtDevcieSearch::Init(std::tr1::shared_ptr<CJtDevcieSearch> Self, nmc_status
 }
 void CJtDevcieSearch::Search()
 {
-	NmcJoinMulticastGroup();
+	if(m_running==0)
+	{
+		m_running = 1;
 
+		NmcJoinMulticastGroup();
+	}
 
 	SearchServerMulticast();
 }
+
 void CJtDevcieSearch::HandleUdpCmd_GetAddrInfoRsp(struct MuiltCastCmd *Cmd)
 {
     char* xml = (char*)(Cmd+1);
@@ -109,8 +119,8 @@ void CJtDevcieSearch::HandleUdpCmd_GetAddrInfoRsp(struct MuiltCastCmd *Cmd)
 	memset(&device_info, 0, sizeof(device_info));
 	device_info.len = sizeof(device_info);
 	device_info.device_type = 0;
-   
-	const char*chconfigport = SAFE_ITEM(pRootElement->Attribute("configport"));
+
+	////const char*chconfigport = SAFE_ITEM(pRootElement->Attribute("configport"));
 	const char*chHostName = SAFE_ITEM(pRootElement->Attribute("HostName"));
 	const char*chUuid = SAFE_ITEM(pRootElement->Attribute("Uuid"));
 
@@ -130,7 +140,7 @@ void CJtDevcieSearch::HandleUdpCmd_GetAddrInfoRsp(struct MuiltCastCmd *Cmd)
 			continue;
 		}
 
-		const char* chstate = SAFE_ITEM(NetInterfaceNode->Attribute("state"));
+		//const char* chstate = SAFE_ITEM(NetInterfaceNode->Attribute("state"));
 		const char* chipv4 = SAFE_ITEM(NetInterfaceNode->Attribute("ipv4"));
 		const char* chnetmask = SAFE_ITEM(NetInterfaceNode->Attribute("netmask"));
 		const char* chnetgate = SAFE_ITEM(NetInterfaceNode->Attribute("netgate"));
@@ -138,6 +148,8 @@ void CJtDevcieSearch::HandleUdpCmd_GetAddrInfoRsp(struct MuiltCastCmd *Cmd)
 		strcpy(device_info.ipv4, chipv4);
 		strcpy(device_info.mask, chnetmask);
 		strcpy(device_info.gateway, chnetgate);
+		strcpy(device_info.iface, chName);
+
 		char TmpName[1024];
 		sprintf(TmpName, "%s-%s", chHostName, chUuid);
 		strcpy(device_info.name, TmpName);
@@ -153,12 +165,9 @@ void CJtDevcieSearch::Static_StartReceiveThread(void *arg)
 {
 	CJtDevcieSearch *self = (CJtDevcieSearch *)arg;
 
-	std::tr1::shared_ptr<CJtDevcieSearch> m_TmpSelf = self->m_Self;
-
-	m_TmpSelf->StartReceiveThread();
-
-	_endthread();
-	return;
+	std::tr1::shared_ptr<CJtDevcieSearch> m_TmpSelf = self->m_Self.lock();
+	if(m_TmpSelf)
+		m_TmpSelf->StartReceiveThread();
 }
 int CJtDevcieSearch::NmcJoinMulticastGroup()
 {
@@ -222,10 +231,9 @@ void* CJtDevcieSearch::Static_StartReceiveThread(void *arg)
 {
 	CJtDevcieSearch *self = (CJtDevcieSearch *)arg;
 
-	std::tr1::shared_ptr<CJtDevcieSearch> m_TmpSelf = self->m_Self;
-
-	m_TmpSelf->StartReceiveThread();
-
+	std::tr1::shared_ptr<CJtDevcieSearch> m_TmpSelf = self->m_Self.lock();
+	if(m_TmpSelf)
+		m_TmpSelf->StartReceiveThread();
 	return NULL;
 }
 int CJtDevcieSearch::NmcJoinMulticastGroup()
@@ -310,7 +318,7 @@ void CJtDevcieSearch::StartReceiveThread()
 	
 #endif
 	struct sockaddr_in local_addr;/*本地地址*/
-	int err = -1;
+	///////int err = -1;
 	
     char buff[MCAST_BUFF_SIZE];
 	bool bFinished = false;
@@ -325,7 +333,7 @@ void CJtDevcieSearch::StartReceiveThread()
 		FD_SET(m_nSockClientFd, &readfd);
 
 		struct timeval timeout;
-		timeout.tv_sec=5;//超时时间为2秒
+		timeout.tv_sec=4;//超时时间为2秒
 		timeout.tv_usec=0;
 
 		int nMaxFd = m_nSockClientFd + 1;
@@ -365,7 +373,7 @@ void CJtDevcieSearch::StartReceiveThread()
 				break;
 		}
 	}
-
+/*
 #if (defined(WIN32) || defined(WIN64))
 	if(m_nSockM!=INVALID_SOCKET)
 	{
@@ -384,19 +392,20 @@ void CJtDevcieSearch::StartReceiveThread()
 		m_nSockClientFd = -1;
 	}
 #endif
+*/
 }
 
 int CJtDevcieSearch::SearchServerMulticast()
 {
     int nSockFd = -1;
-    struct sockaddr_in mcast_addr;     
+    struct sockaddr_in mcast_addr;
     nSockFd = socket(AF_INET, SOCK_DGRAM, 0);/*建立套接字*/
     if (nSockFd == -1)
     {
         perror("socket()");
         return -1;
     }
-   
+
     memset(&mcast_addr, 0, sizeof(mcast_addr));/*初始化IP多播地址为0*/
     mcast_addr.sin_family = AF_INET;                /*设置协议族类行为AF*/
 	mcast_addr.sin_addr.s_addr = inet_addr(JT_S_IP); /*设置多播IP地址*/
@@ -417,6 +426,10 @@ int CJtDevcieSearch::SearchServerMulticast()
                     0,
                     (struct sockaddr*)&mcast_addr,
                     sizeof(mcast_addr));
+	if(nSendLen<=0)
+	{
+		jtprintf("[%s]sendto error\n", __FUNCTION__); 
+	}
 
 #if (defined(WIN32) || defined(WIN64))
 	closesocket(nSockFd);
@@ -424,6 +437,157 @@ int CJtDevcieSearch::SearchServerMulticast()
 #else
 	close(nSockFd);
 	nSockFd = -1;
+#endif
+
+	return 0;
+}
+int CJtDevcieSearch::ChangeDeviceNet(struct st_xy_device_info *old_device_info, struct st_xy_device_info *new_device_info)
+{
+#if 1
+	char *uuid = strchr(old_device_info->name,'-');
+	if(uuid==NULL)
+		return -1;
+
+	uuid=uuid+1;
+
+	char info[2048] = "";
+
+	sprintf(info, "<?xml version=\"1.0\" encoding=\"gb2312\"?>\n"
+		"<ExSetAddrInfoReq  Uuid=\"%s\" >"
+		"<NetInterfaceList>"
+		"<NetInterface state=\"0\" ipv4=\"%s\" ipv6=\"0\"  netmask=\"%s\" netgate=\"%s\" dns=\"0\" >%s</NetInterface>"
+		"</NetInterfaceList>"
+		"</ExSetAddrInfoReq>", 
+		uuid,
+		new_device_info->ipv4, 
+		new_device_info->mask, 
+		new_device_info->gateway,
+		new_device_info->iface);
+
+	int nSockFd = -1;
+	struct sockaddr_in mcast_addr;
+	nSockFd = socket(AF_INET, SOCK_DGRAM, 0);/*建立套接字*/
+	if (nSockFd == -1)
+	{
+		perror("socket()");
+		return -1;
+	}
+
+	memset(&mcast_addr, 0, sizeof(mcast_addr));/*初始化IP多播地址为0*/
+	mcast_addr.sin_family = AF_INET;                /*设置协议族类行为AF*/
+	mcast_addr.sin_addr.s_addr = inet_addr(JT_S_IP); /*设置多播IP地址*/
+	mcast_addr.sin_port = htons(62626);        /*设置多播端口*/
+
+	int ninfo = strlen(info);
+	int szMuiltCastCmd = sizeof(struct MuiltCastCmd);
+	char *cmd = new char[szMuiltCastCmd+ninfo];
+
+	struct MuiltCastCmd* Cmd = (struct MuiltCastCmd*)cmd;
+	Cmd->uMagic = m_uMagic;
+	Cmd->nCmdType = SEAN_SET_ADDR_INFO_REQ;
+	Cmd->nCmdSeq = 0;
+	Cmd->uIp[0] = htonl(inet_addr(JT_C_IP));
+	Cmd->uRPort =  htons(local_addr.sin_port);
+	Cmd->nContentSize = ninfo;
+	Cmd->cChecksum = 0;
+
+	memcpy(Cmd+1, info, ninfo);
+
+	int nSendLen = sendto(nSockFd,	/*套接字描述符*/
+		(const char *)Cmd,	/*数据*/
+		sizeof(struct MuiltCastCmd)+ninfo,	/*长度*/
+		0,
+		(struct sockaddr*)&mcast_addr,
+		sizeof(mcast_addr));
+	if(nSendLen<=0)
+	{
+		jtprintf("[%s]sendto error\n", __FUNCTION__); 
+	}
+
+#if (defined(WIN32) || defined(WIN64))
+	closesocket(nSockFd);
+	nSockFd = -1;
+#else
+	close(nSockFd);
+	nSockFd = -1;
+#endif
+
+	delete [] cmd;
+
+#endif
+
+	return 0;
+}
+int CJtDevcieSearch::ShutdownDevice(struct st_xy_device_info *device_info, int type)
+{
+#if 1
+	char *uuid = strchr(device_info->name,'-');
+	if(uuid==NULL)
+		return -1;
+
+	uuid=uuid+1;
+
+	char info[2048] = "";
+	if(type==NMC_REBOOT)//重启
+		sprintf(info, "<?xml version=\"1.0\" encoding=\"gb2312\"?><ExRebootReq Uuid=\"%s\" ></ExRebootReq>", uuid);
+	else if(type==NMC_HALT)//关机
+		sprintf(info, "<?xml version=\"1.0\" encoding=\"gb2312\"?><ExHaltReq Uuid=\"%s\" ></ExHaltReq>", uuid);
+	
+	int nSockFd = -1;
+	struct sockaddr_in mcast_addr;
+	nSockFd = socket(AF_INET, SOCK_DGRAM, 0);/*建立套接字*/
+	if (nSockFd == -1)
+	{
+		perror("socket()");
+		return -1;
+	}
+
+	memset(&mcast_addr, 0, sizeof(mcast_addr));/*初始化IP多播地址为0*/
+	mcast_addr.sin_family = AF_INET;                /*设置协议族类行为AF*/
+	mcast_addr.sin_addr.s_addr = inet_addr(JT_S_IP); /*设置多播IP地址*/
+	mcast_addr.sin_port = htons(62626);        /*设置多播端口*/
+
+	int ninfo = strlen(info);
+	int szMuiltCastCmd = sizeof(struct MuiltCastCmd);
+	char *cmd = new char[szMuiltCastCmd+ninfo];
+
+	struct MuiltCastCmd* Cmd = (struct MuiltCastCmd*)cmd;
+	Cmd->uMagic = m_uMagic;
+
+	if(type==NMC_REBOOT)//重启
+		Cmd->nCmdType = SEAN_SET_REBOOT_REQ;
+	else if(type==NMC_HALT)//关机
+		Cmd->nCmdType = SEAN_SET_HALT_REQ;
+
+	Cmd->nCmdSeq = 0;
+	Cmd->uIp[0] = htonl(inet_addr(JT_C_IP));
+	Cmd->uRPort =  htons(local_addr.sin_port);
+	Cmd->nContentSize = ninfo;
+	Cmd->cChecksum = 0;
+
+	memcpy(Cmd+1, info, ninfo);
+
+	int nSendLen = sendto(nSockFd,	/*套接字描述符*/
+		(const char *)Cmd,	/*数据*/
+		sizeof(struct MuiltCastCmd)+ninfo,	/*长度*/
+		0,
+		(struct sockaddr*)&mcast_addr,
+		sizeof(mcast_addr));
+	if(nSendLen<=0)
+	{
+		jtprintf("[%s]sendto error\n", __FUNCTION__); 
+	}
+
+#if (defined(WIN32) || defined(WIN64))
+	closesocket(nSockFd);
+	nSockFd = -1;
+#else
+	close(nSockFd);
+	nSockFd = -1;
+#endif
+
+	delete [] cmd;
+
 #endif
 
 	return 0;

@@ -21,8 +21,11 @@ using namespace std;
 #endif
 
 #else //linux platform
+ 
+#ifndef NMC_API
+#define NMC_API  __attribute__ ((visibility ("default")))
+#endif
 
-#define NMC_API
 #ifndef NMC_CALL_TYPE
 #define NMC_CALL_TYPE
 #endif

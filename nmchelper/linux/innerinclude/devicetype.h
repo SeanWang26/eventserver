@@ -10,7 +10,7 @@
 #endif
 
 #ifndef JT_CALL_TYPE
-#define JT_CALL_TYPE	__stdcall  //__cdecl
+#define JT_CALL_TYPE	__stdcall  
 #endif
 
 #else //linux platform
@@ -25,12 +25,12 @@
 #endif
 
 //对象定义
-#define OBJECT_TYPE_DEVICE  1
-#define OBJECT_TYPE_CHANNEL 2
-#define OBJECT_TYPE_INPUT   3
-#define OBJECT_TYPE_OUTPUT  4
-#define OBJECT_TYPE_STREAM  5
-#define OBJECT_TYPE_RECORD  6
+#define OBJECT_TYPE_DEVICE  1 // 设备
+#define OBJECT_TYPE_CHANNEL 2 // 通道
+#define OBJECT_TYPE_INPUT   3 // 输入
+#define OBJECT_TYPE_OUTPUT  4 // 输出
+#define OBJECT_TYPE_STREAM  5 // 流
+#define OBJECT_TYPE_RECORD  6 // 录像
 
 //设备类型定义
 #define DEVICE_JN              1U	//竣泰
@@ -44,6 +44,14 @@
 #define DEVICE_LK			   9U	//录酷软件 
 #define DEVICE_RTSP			   10U	//RTSP
 #define DEVICE_LB              11U	//领标
+#define DEVICE_RTSP_UDP        12U	//
+#define DEVICE_RTSP_TCP        13U	//
+#define DEVICE_TDWY            14U	//天地伟业
+#define DEVICE_HB              15U	//汉邦
+#define DEVICE_TE              16U	//TCP-ES流服务器
+#define DEVICE_UDP_ES          17U	//TCP-ES流服务器
+#define	DEVICE_PUSH			   18U	//推送流
+#define	DEVICE_TST             19U  //天视通
 
 #define DEVICE_XX              99U	//sb
 #define DEVICE_MAX             100U	//sb
@@ -86,6 +94,8 @@
 #define AUDIO_AAC                                        14
 #define AUDIO_PCM                                        15
 #define AUDIO_AMR                                        16
+#define AUDIO_MP2                                        17
+
 
 #define AUDIO_ENCODE_UNKOWN                              9999
 
@@ -115,7 +125,8 @@
 #define RECORD_FRAME_BACKWARD_X1     5 //帧退
 #define RECORD_FRAME_PAUSE           6 //暂停
 #define RECORD_SEEK                  7 //拖放
-
+#define RECORD_START                 8 //暂停后又开始播放
+#define RECORD_SLOW_PLAY             9 //暂停后又开始播放
 
 //云台
 enum{JPTZ_UP=0, JPTZ_RIGHT_UP, JPTZ_RIGHT, JPTZ_RIGHT_DOWN, 
@@ -128,6 +139,8 @@ enum{JPTZ_UP=0, JPTZ_RIGHT_UP, JPTZ_RIGHT, JPTZ_RIGHT_DOWN,
      JADD_TO_LOOP,JDEL_FROM_LOOP,JSTART_LOOP,JSTOP_LOOP,JREMOVE_LOOP,
      JPTZ_RESET
 };
+
+#pragma pack(1)
 
 struct st_jt_daytime
 {
@@ -156,6 +169,19 @@ struct st_stream_data
 {
 	unsigned int streamtype;
 	char* pdata;
+	
+#if (defined(WIN32) || defined(WIN64))
+	#if (defined(WIN32))
+	//#warning "stInterProcessCommandRequest with pad1 in windows"
+	int						  pad2;
+	#endif
+#else
+	#ifndef _LP64
+	#warning "stInterProcessCommandRequest with pad1 in linux"
+	int						  pad2;	
+	#endif
+#endif
+
 	int   datalen;
 	union 
 	{
@@ -178,7 +204,7 @@ struct st_stream_data
 			unsigned int  reserved;  //reserved
 		}audio_stream_info;
 		struct
-		{	
+		{
 			int           channelid;
 			int           reason;
 		}alarm_stream_info;
@@ -195,6 +221,7 @@ struct st_stream_data
 	unsigned int reserved[3];
 };
 
+
 struct st_video_record_info
 {
 	int subequid;
@@ -207,6 +234,8 @@ struct st_video_record_info
 	char locktime[32];
 };
 
+#pragma pack()
+
 //如果是停止的回调，用户可能会修改*user的值
 typedef int (JT_CALL_TYPE *jt_stream_callback)(int callback_type, void* data, int len, void** user);
 
@@ -215,9 +244,10 @@ typedef void* (JT_CALL_TYPE *jt_talk_callback)(int callback_type, void* data, in
 
 
 //回调事件类型
-#define CALLBACK_TYPE_VIDEO_STREAM               1     //视频数据         流会产生该事件
-#define CALLBACK_TYPE_AUDIO_STREAM               2     //音频流数据       通道会产生该事件
-#define CALLBACK_TYPE_ALARM_STREAM               3     //报警流数据       设备会产生该事件
+#define CALLBACK_TYPE_VIDEO_STREAM                1     //视频数据         流会产生该事件
+#define CALLBACK_TYPE_AUDIO_STREAM                2     //音频流数据       通道会产生该事件
+#define CALLBACK_TYPE_ALARM_STREAM                3     //报警流数据       设备会产生该事件
+#define CALLBACK_TYPE_RECORD_STREAM               4     //回放流数据         流会产生该事件
 
 #define CALLBACK_TYPE_VIDEO_STREAM_OPENED        10     //视频流流打开了   流会产生该事件
 #define CALLBACK_TYPE_VIDEO_STREAM_CLOSEED       11     //视频流关闭了     流会产生该事件
@@ -240,6 +270,9 @@ typedef void* (JT_CALL_TYPE *jt_talk_callback)(int callback_type, void* data, in
 #define CALLBACK_TYPE_DEVICE_DISCONNECT          100    //设备断线
 
 #define CALLBACK_TYPE_JNDEVICE_NOTIFY            200    //jn类型的设备的通知回调
+
+
+
 
 
 #endif

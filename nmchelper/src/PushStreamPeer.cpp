@@ -9,6 +9,8 @@
 #include "NMCDeviceImpl.h"
 #include "PushStreamPeer.h"
 
+
+
 PushStreamPeer::PushStreamPeer(NMCDeviceImpl* Holder)
 {
 	m_Holder = Holder;
@@ -240,25 +242,45 @@ int PushStreamPeer::OnReConnected(void* Cookie)
 }
 int PushStreamPeer::DoRequest(JtEventConnect* Conn, const char* pData,int dataLen, struct ST_AFFAIR_CALLBACK* pAffairCallBack, int Seq, int Cmd)
 {
-	int res = Conn->SendData(pData, dataLen);
-	if(res)
+	if(pAffairCallBack==NULL)
 	{
-		return NMC_RECEIVE_REQ_FAILED;
-	}
-
-	if(pAffairCallBack)
-	{
-		res = CCachedAffairMap::Static_PushNewAffair(m_cachedAffairMap, m_lockCachedAffair, pAffairCallBack
-			,Seq,Cmd, Cmd+1);
-
-		if(res<0)
+		int res = Conn->SendData(pData, dataLen);
+		if(res)
 		{
-			return NMC_ERROR_PUSHNEWAFFAIR;
+			return NMC_RECEIVE_REQ_FAILED;
+		}
+	}
+	else
+	{
+		//1.先添加把异步Affair的同步成员初始完毕
+		tr1::shared_ptr<CCachedAffair> pCachedAffairItem(new CCachedAffair(pAffairCallBack));
+		unsigned long long AffairId = CCachedAffairMap::Static_PushNewAffair_Pre(m_cachedAffairMap, m_lockCachedAffair
+			, pCachedAffairItem, Seq, Cmd, Cmd+1);
+
+		int res = Conn->SendData(pData, dataLen);
+		if(res)
+		{
+			return NMC_RECEIVE_REQ_FAILED;
+		}
+
+		if(pAffairCallBack->m_pOnGotData==NULL)
+		{
+			//只有是同步的才等待
+			res = CCachedAffairMap::Static_PushNewAffair(m_cachedAffairMap, m_lockCachedAffair, pCachedAffairItem, AffairId);
+			if(res<0)
+			{
+				return NMC_ERROR_PUSHNEWAFFAIR;
+			}
+
+			pAffairCallBack->m_pRecvData = pCachedAffairItem->m_pRecvDataBuf;
 		}
 	}
 
 	return 0;
 }
+
+extern JtEventServer*  g_JtEventServer;
+
 int PushStreamPeer::CreateUserStreamSource(void *arg)
 {
 	//创建信令连接
@@ -268,7 +290,7 @@ int PushStreamPeer::CreateUserStreamSource(void *arg)
 		m_PushCmdConn->SetJtEventCallbackSink(this, this);
 		
 		//int res = m_PushCmdConn->DoConnect("192.168.3.127", 41000, 5000);
-		int res = m_PushCmdConn->DoConnect(m_Holder->m_LoginInfo.ip, 41000, 5000);
+		int res = m_PushCmdConn->DoConnect(m_Holder->m_LoginInfo.ip, 41000, 5000,g_JtEventServer);
 		if(res)
 		{
 			delete m_PushCmdConn;
@@ -338,7 +360,7 @@ int PushStreamPeer::CreateUserStreamSource(void *arg)
 	static int nOpSeq = 0;
 	char cEquName[64] = "";
 	static int Handle = time(0);
-	sprintf(cEquName, "PS-%ld", Handle++);
+	sprintf(cEquName, "PS-%d", Handle++);
 	m_jn_equ.nOpSeq = nOpSeq++;
 	strcpy(m_jn_equ.EquName, cEquName);
 

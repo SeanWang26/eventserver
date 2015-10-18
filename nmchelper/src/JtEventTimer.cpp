@@ -27,11 +27,13 @@ void JtEventTimer::TimeoutCallBack(evutil_socket_t fd, short event, void *arg)
 
 void JtEventTimer::Timeout(evutil_socket_t fd, short event)
 {
+	/*
 	struct timeval newtime, difference, lasttime;
 	double elapsed;	evutil_gettimeofday(&newtime, NULL);
 	evutil_timersub(&newtime, &lasttime, &difference);
 	elapsed = difference.tv_sec + (difference.tv_usec / 1.0e6);
 	lasttime = newtime;
+	*/
 
 	///////////CCachedAffairMap::GetInstance()->CheckBeOverTime(time(0));
 }
@@ -42,7 +44,7 @@ int JtEventTimer::OnAddToServer(JtEventServer *m_Server)
 	
 	struct timeval tv;
 	evutil_timerclear(&tv);
-	tv.tv_sec = 2;
+	tv.tv_sec = 1000;
 	
 	event_add(&timeout, &tv);
 	return 0;

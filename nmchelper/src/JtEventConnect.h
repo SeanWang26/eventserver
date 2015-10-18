@@ -8,6 +8,10 @@ using namespace std;
 #include "JtEventServer.h"
 #include "FramePkg.h"
 
+#include <event2/listener.h>
+#include <event2/bufferevent.h>
+#include <event2/buffer.h>
+
 class  JtConnectEventCallbackSink
 {
 public:
@@ -18,6 +22,13 @@ public:
 };
 
 struct bufferevent;
+
+enum
+{
+	JTEVENTCONNECT_DISCONNECT = 1,//断开连接
+	JTEVENTCONNECT_SENDDATA = 2,//发送数据
+	JTEVENT_TEST_CMD
+};
 
 class JtEventConnect : public JtEventPeer, public OnGetFrameCallBack
 {
@@ -30,7 +41,7 @@ private:
 	JtConnectEventCallbackSink *m_Sink;
 	void* m_EventCallbackUserData;
 
-	void DoDisconnectInner(int arg);
+	int Connected;
 private:
 	virtual int OnGetFrame(unsigned char* Data, int len);
 
@@ -46,18 +57,21 @@ private:
 	static void Static_ReadCallback(struct bufferevent *bev, void *ptr);
 	void ReadCallback(struct bufferevent *bev);
 
+	int DoDisconnectInner(int cmd, int seq);
 public:
-	virtual int OnAddToServer(JtEventServer *m_Server);
+	virtual int OnAddToServer(JtEventServer *Server);
 	virtual int OnRemoveFromServer();
 	virtual const char* GetEventPeerType(){ return "JtEventConnect"; }
 
 	JtEventConnect();
 	~JtEventConnect();
 
-	int DoConnect(string Ip, uint16_t Port, int TimeOut);
+	//int DoConnect(string Ip, uint16_t Port, int TimeOut);
+	int DoConnectInner(string Ip, uint16_t Port, int TimeOut);
+	int DoConnect(string Ip, uint16_t Port, int TimeOut,JtEventServer *Server);
 	int DoDisconnect();
 	
-	//int DoSend(uint8_t *Data, uint32_t Len);
+	int SendDataInner(const char* pData,int dataLen);
 	int SendData(const char* pData,int dataLen);
 	int SetJtEventCallbackSink(JtConnectEventCallbackSink *Sink, void* UserData);
 

@@ -156,6 +156,7 @@ void JtEventConnPeer::WriteCallback(struct bufferevent *bev, short events)
 	
 }*/
 
+/*
 int JtEventConnPeer::DoConnect(string Ip, uint16_t Port, int TimeOut)
 {
 	m_FramePkg.SetCallBack(this);
@@ -183,7 +184,8 @@ int JtEventConnPeer::DoConnect(string Ip, uint16_t Port, int TimeOut)
 
 	return 0;
 }
-int JtEventConnPeer::DoDisconnect()
+*/
+int JtEventConnPeer::DoDisconnectInner(int cmd, int seq)
 {
 	if(bev)
 	{
@@ -193,7 +195,33 @@ int JtEventConnPeer::DoDisconnect()
 		bev=0;
 	}
 
+	GetServer()->RmvPeer(this);
+
 	return 0;
+}
+
+int JtEventConnPeer::DoDisconnect()
+{
+	ExCommand Head;
+	Head.nSrcType				= 0;
+	Head.nCmdType				= JTEVENTCONNPEER_DISCONNECT;
+	Head.nCmdSeq				= GetServer()->GenSeq();
+	Head.nContentSize			= 0;
+
+	AsyncEvent Event(std::bind(&JtEventConnPeer::DoDisconnectInner,this,std::placeholders::_1,std::placeholders::_2), Head.nCmdType, Head.nCmdSeq,this);
+	int res = GetServer()->DoInSync(Event);
+
+	/*
+	if(bev)
+	{
+		bufferevent_disable(bev, EV_READ|EV_WRITE);
+		//bufferevent_setcb(bev, NULL, NULL, NULL, this);
+		bufferevent_free(bev);
+		bev=0;
+	}
+	*/
+
+	return res;
 }
 
 //int JtEventConnPeer::DoSend(uint8_t *Data, uint32_t Len)
@@ -227,7 +255,7 @@ int JtEventConnPeer::TestCmd()
 {
 	ExCommand Head;
 	Head.nSrcType				= 0;
-	Head.nCmdType				= JTEVENT_TEST_CMD;
+	Head.nCmdType				= 11;//JTEVENT_TEST_CMD;
 	Head.nCmdSeq				= GetServer()->GenSeq();
 	Head.nContentSize			= 0;
 

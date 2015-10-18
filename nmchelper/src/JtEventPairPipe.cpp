@@ -8,6 +8,7 @@
 	#include <event2/event_struct.h>
 	#include <event2/event.h>
 	#include <event2/bufferevent.h>
+
 	#pragma message("using windows i586 include file") 
 	#else
 	#pragma message("using windows x64 include file") 
@@ -64,13 +65,32 @@ int JtEventPairPipe::AddToServer(JtEventServer *EventServer)
 {
 	//pairbev[1]在loop中用于接收信令
 	m_Sink = dynamic_cast<JtPairPipeEventCallbackSink*>(EventServer);
-	struct event_base * ebase = EventServer->GetBase();
+	//struct event_base * ebase = EventServer->GetBase();
+
+#if 0
+	//bufferevent_pair_new无法使loop阻塞
 	if(bufferevent_pair_new(ebase, BEV_OPT_THREADSAFE, pairbev))
 	{
 		return -1;
 	}
-	//BEV_OPT_CLOSE_ON_FREE
+#else
+
+	evutil_socket_t pair[2];
+#if (defined(WIN32) || defined(WIN64))
+	evutil_socketpair(AF_INET, SOCK_STREAM, 0, pair);
+#else
+	evutil_socketpair(AF_UNIX, SOCK_STREAM, 0, pair);
+#endif
+
+	jtprintf("[%s]bufferevent_setcb before1111111111, EventServer %p\n", __FUNCTION__, EventServer);
+	pairbev[0] = bufferevent_socket_new(EventServer->GetBase(), pair[0], BEV_OPT_CLOSE_ON_FREE|BEV_OPT_THREADSAFE);
+	pairbev[1] = bufferevent_socket_new(EventServer->GetBase(), pair[1], BEV_OPT_CLOSE_ON_FREE|BEV_OPT_THREADSAFE);
+
+#endif
+
+	jtprintf("[%s]bufferevent_setcb before %p, %p\n", __FUNCTION__, pairbev[0], pairbev[1]);
 	bufferevent_setcb(pairbev[1], Static_ReadCallback, NULL, Static_EventCallback, this);
+	jtprintf("[%s]bufferevent_setcb after\n", __FUNCTION__);
 	
 	if(bufferevent_enable(pairbev[1], EV_READ|EV_WRITE))
 	{
@@ -140,13 +160,14 @@ int JtEventPairPipe::SendCmd(const char* pData,int dataLen)
 	{
 		if(bufferevent_write(pairbev[0], pData, dataLen))
 		{
-			//jtprintf("[%s]bufferevent_write fail\n", __FUNCTION__);
+			jtprintf("[%s]bufferevent_write fail 11\n", __FUNCTION__);
 			return -2;
 		}
 		//bufferevent_flush(pairbev[0], EV_WRITE, BEV_FLUSH);		
 		return 0;
 	}
-	
+
+	jtprintf("[%s]bufferevent_write fail 22\n", __FUNCTION__);
     return -1;
 }
 /*

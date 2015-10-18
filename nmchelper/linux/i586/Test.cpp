@@ -9,6 +9,8 @@
 
 #include <dlfcn.h>
 
+#include "tinyxml2.h"
+
 //#include "usersdk.h"
 
 /*
@@ -239,7 +241,7 @@ void get_source(long m_handle)
 	int res = nmc_get_signal_source(m_handle, &equ, &equcnt);
 	if(res)
 	{
-		printf("nmc_get_signal_source failed\n");
+		printf("nmc_get_signal_source failed, %d\n", res);
 		return;
 	}
 
@@ -256,7 +258,7 @@ void get_source(long m_handle)
 }
 void get_remote_source(long m_handle)
 {
-
+	printf("get_remote_source ok!\n");
 
 }
 void get_sw_info(long m_handle)
@@ -339,6 +341,10 @@ void tcpstream_test(long m_handle, char *Ip, int port)
 	{
 		printf("nmc_rmv_signal_source failed!\n");
 	}
+
+	nmc_free_add_equ_info(&jn_equ);
+
+	
 	
 }
 /*int nvr_test()
@@ -459,19 +465,27 @@ void tcpstream_test(long m_handle, char *Ip, int port)
 }*/
 int main(int argc, char** argv)
 {
+	tinyxml2::XMLDocument ReqDoc;
+	if(tinyxml2::XML_NO_ERROR!=ReqDoc.Parse("<?xml version=\"1.0\" encoding=\"gb2312\"?><ExLoginReq/>\n"))//
+	{
+		//
+		return -1;
+	}
+
 	needshowstackbackwhencrack();
 
 	//nvr_test();
 	
 	nmc_init(static_NmcStatusCallback, 0);
 
+	getchar();
 	//nmc_search_device(NULL, NULL);
 	//sleep(10);
 	//return 0;
 	
 	struct login_info info;
 	memset(&info, 0, sizeof(info));
-	strcpy(info.ip, "192.168.3.177");
+	strcpy(info.ip, "192.168.3.86");
 	info.port = 40000;
 	strcpy(info.user, "admin");
 	strcpy(info.password, "admin");
